@@ -120,7 +120,16 @@ if __name__ == "__main__":
         "--merge-window", type=float, default=0.0,
         help="같은 번호에서 이 초 안에 연달아 오는 문자는 한 건으로 합쳐서 저장 (기본 0=합치지 않고 즉시 저장)"
     )
+    parser.add_argument(
+        "--hide", action="store_true",
+        help="휴대폰과 연결 창을 최소화 대신 화면 밖으로 옮겨서 숨긴 채로 감시를 시작합니다 "
+             "(최소화하면 알림 목록이 갱신을 멈춰서 새 문자를 못 잡는 걸 확인했음)"
+    )
     args = parser.parse_args()
+
+    if args.hide:
+        phone_link.hide_off_screen()
+        print("[숨김] 휴대폰과 연결 창을 화면 밖으로 옮겼습니다.")
 
     reporter = make_reporter(args.server, merge_window=args.merge_window)
     try:

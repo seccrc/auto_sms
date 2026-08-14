@@ -67,6 +67,8 @@ capture_location_auto.py의 국민신문고 화면처럼 "이름이 매번 바�
     python phone_link.py --dump                              (화면 구조 덤프)
     python phone_link.py --send "010-1234-5678" "안내 문자입니다"  (단발 발송 테스트)
     python phone_link.py --watch-notifications                (알림 패널 감시 테스트, Ctrl+C로 종료)
+    python phone_link.py --hide                               (창을 화면 밖으로 숨김, 최소화 대신)
+    python phone_link.py --restore                            (숨긴 창을 다시 화면 안으로)
 """
 import argparse
 import re
@@ -155,6 +157,41 @@ def dump_control_tree(depth: int = None):
     다시 확인하기 위한 진단용 함수."""
     win = _connect_main_window()
     win.print_control_identifiers(depth=depth)
+
+
+def hide_off_screen():
+    """휴대폰과 연결 창을 최소화하지 않고 화면 밖으로 옮겨서 눈에 안 띄게
+    한다.
+
+    최소화(아이콘화)하면 알림 목록처럼 화면에 실제로 보이는 항목만 UI
+    요소를 만드는(가상화된) 컨트롤들이 렌더링을 멈춰서, descendants()로
+    훑어도 빈 목록만 나오는 걸 실제로 확인했다 — 즉 최소화 상태에서는
+    watch_notifications()가 새 문자를 못 잡는다. 대신 창을 "보통 크기로
+    펼쳐진 상태"는 그대로 두고 위치만 모니터 바깥의 아주 먼 좌표로
+    옮기면, 창은 계속 정상적으로 렌더링/갱신되면서도 화면엔 안 보인다.
+
+    pywinauto의 move_window 대신 win32gui를 직접 쓰는 이유는, uia 백엔드
+    래퍼가 창 이동을 지원하는지가 pywinauto 버전마다 달라서 — HWND만
+    있으면 항상 되는 win32gui.MoveWindow가 더 안정적이다."""
+    import win32con
+    import win32gui
+
+    win = _connect_main_window()
+    hwnd = win.handle
+    if win32gui.IsIconic(hwnd):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+    win32gui.MoveWindow(hwnd, -32000, top, right - left, bottom - top, True)
+
+
+def restore_window(x: int = 100, y: int = 100):
+    """hide_off_screen()으로 화면 밖에 둔 창을 다시 화면 안으로 가져온다."""
+    import win32gui
+
+    win = _connect_main_window()
+    hwnd = win.handle
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+    win32gui.MoveWindow(hwnd, x, y, right - left, bottom - top, True)
 
 
 def _phone_variants(phone_number: str) -> list:
@@ -419,6 +456,11 @@ if __name__ == "__main__":
         "--watch-notifications", action="store_true",
         help="알림 패널 감시를 터미널에서 바로 테스트합니다 (Wi-Fi 없이도 동작, Ctrl+C로 종료)"
     )
+    parser.add_argument(
+        "--hide", action="store_true",
+        help="창을 최소화 대신 화면 밖으로 옮겨서 숨깁니다(최소화하면 알림 목록이 갱신을 멈춤)"
+    )
+    parser.add_argument("--restore", action="store_true", help="--hide로 숨긴 창을 다시 화면 안으로 가져옵니다")
     args = parser.parse_args()
 
     if args.dump:
@@ -428,5 +470,11 @@ if __name__ == "__main__":
         print("발송 완료")
     elif args.watch_notifications:
         watch_notifications(lambda phone, name, body, t: print(f"[감지] {phone} ({t}): {body[:60]}"))
+    elif args.hide:
+        hide_off_screen()
+        print("창을 화면 밖으로 숨겼습니다. 되돌리려면: python phone_link.py --restore")
+    elif args.restore:
+        restore_window()
+        print("창을 화면 안으로 되돌렸습니다.")
     else:
         parser.print_help()
