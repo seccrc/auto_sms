@@ -11,7 +11,7 @@ watch_daemon.py와 phone_link.py는 pywinauto(Windows 전용)를 쓰므로 이 �
 """
 from flask import Flask, jsonify, render_template, request
 
-from db import get_db, init_db, make_dedup_key
+from db import get_db, init_db, make_dedup_key, now_local
 
 app = Flask(__name__)
 init_db()
@@ -60,9 +60,9 @@ def api_save_message():
     dedup_key = make_dedup_key(phone_number, body, msg_time)
     conn = get_db()
     cur = conn.execute(
-        "INSERT OR IGNORE INTO messages (phone_number, contact_name, body, direction, msg_time, dedup_key) "
-        "VALUES (?,?,?,'in',?,?)",
-        (phone_number, contact_name, body, msg_time, dedup_key),
+        "INSERT OR IGNORE INTO messages (phone_number, contact_name, body, direction, msg_time, dedup_key, created_at) "
+        "VALUES (?,?,?,'in',?,?,?)",
+        (phone_number, contact_name, body, msg_time, dedup_key, now_local()),
     )
     inserted = cur.rowcount > 0
     conn.commit()
@@ -169,8 +169,8 @@ def api_send():
     # 기록에는 필요 없다 — NULL로 두면(SQLite는 NULL끼리 UNIQUE 충돌을 안 봄)
     # 같은 번호로 같은 문구를 여러 번 보내도 매번 정상적으로 기록된다.
     conn.execute(
-        "INSERT INTO messages (phone_number, body, direction, dedup_key) VALUES (?,?,'out',NULL)",
-        (phone_number, body),
+        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at) VALUES (?,?,'out',NULL,?)",
+        (phone_number, body, now_local()),
     )
     conn.commit()
     conn.close()

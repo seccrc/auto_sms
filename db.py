@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "auto_sms.db")
@@ -23,7 +24,7 @@ def init_db():
             direction     TEXT NOT NULL CHECK(direction IN ('in','out')),  -- in=수신, out=발신
             msg_time      TEXT,                    -- 문자 자체의 시각(휴대폰 연결 화면에 찍힌 시각)
             dedup_key     TEXT UNIQUE,              -- 워처가 같은 메시지를 중복 저장하지 않게 막는 키
-            created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at    TEXT DEFAULT (datetime('now', 'localtime'))
         );
         CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(phone_number);
         CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
@@ -33,7 +34,7 @@ def init_db():
             title       TEXT NOT NULL,             -- 대시보드 드롭다운에 보일 이름 (예: "접수 확인 안내")
             body        TEXT NOT NULL,              -- 실제 발송될 문구
             sort_no     INTEGER DEFAULT 0,
-            created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at  TEXT DEFAULT (datetime('now', 'localtime'))
         );
     """)
     conn.commit()
@@ -45,3 +46,14 @@ def make_dedup_key(phone_number: str, body: str, msg_time: str) -> str:
     않도록 막는 키. 시각까지 포함해서, 같은 번호로 같은 문구가 서로 다른
     시각에 여러 번 와도(예: 정형화된 자동응답) 별개 메시지로 취급한다."""
     return f"{phone_number}|{msg_time}|{body}"
+
+
+def now_local() -> str:
+    """messages.created_at에 쓸 현재 시각(로컬, 한국 기준) 문자열.
+
+    SQLite의 CURRENT_TIMESTAMP는 UTC라서, 알림에서 시각(msg_time)을 못 읽어
+    화면이 created_at으로 대체 표시할 때 실제 시각보다 9시간 전으로 보이는
+    문제가 있었다. app.py의 INSERT에서 이 값을 명시적으로 넘겨서, 이미
+    CURRENT_TIMESTAMP로 만들어진 기존 테이블이라도 새로 저장되는 행부터는
+    바로 로컬 시각으로 찍히게 한다(스키마 마이그레이션 없이도 적용됨)."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
