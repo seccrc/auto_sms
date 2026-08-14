@@ -36,6 +36,22 @@ capture_location_auto.py의 국민신문고 화면처럼 "이름이 매번 바�
       본문은 Text(auto_id="MessageBody")로 깔끔하게 분리되어 있다
       (지금은 안 쓰지만, 나중에 대화창을 직접 열어서 읽는 방식으로
       바꾸게 되면 이 auto_id를 쓰면 된다).
+    - 홈 화면 좌측 "알림" 패널: Pane(auto_id="NotificationsListScrollHost")
+      안에 각 알림이 ListItem으로 들어있다. 실제 문자 알림 하나를 받은
+      상태로 --dump해서 확인한 구조:
+        ListItem (title="메시지 ⁨010-XXXX-XXXX⁩  {본문}   {날짜시각}")
+          Static(auto_id="AppNameTextBlock")            = "메시지"
+          Static(auto_id="HoverDateReceivedTextBlock")   = "오후 7:36" 등
+          Static(auto_id="CompactModeTitleTextBlock")    = 발신자(번호)
+          Static(auto_id 없음, control_type="Text")       = 본문 미리보기
+          Edit(auto_id="ReplyTextBox") + Button(auto_id="NotificationReplySend")
+      이 패널은 **Wi-Fi 없이 블루투스만으로도 채워지는 걸 실제로 확인
+      했다** — CVSListView(대화 목록)의 본문 동기화는 Wi-Fi가 필요해서
+      Wi-Fi가 막힌 행정망 PC에서는 watch_new_messages()가 새 메시지를
+      못 읽지만, 이 알림 패널 기반 watch_notifications()는 그 상황에서도
+      동작한다. 대신 미리보기라 원문이 길면 잘려있을 수 있다.
+      AppNameTextBlock이 "메시지"가 아닌 항목(카카오톡 등 다른 앱 알림)은
+      걸러서 무시한다.
 
 사전 설치 (윈도우 PC에서):
     pip install pywinauto pywin32 requests
@@ -43,6 +59,7 @@ capture_location_auto.py의 국민신문고 화면처럼 "이름이 매번 바�
 사용 예:
     python phone_link.py --dump                              (화면 구조 덤프)
     python phone_link.py --send "010-1234-5678" "안내 문자입니다"  (단발 발송 테스트)
+    python phone_link.py --watch-notifications                (알림 패널 감시 테스트, Ctrl+C로 종료)
 """
 import argparse
 import re
@@ -81,6 +98,25 @@ _ROW_PATTERN = re.compile(r"^(.*?)와의 대화 메시지 미리 보기 (.*)$", 
 # 국내 휴대폰 번호 — "010-XXXX-XXXX"와 "+82 10-XXXX-XXXX"(국제 표기, 실제
 # 화면에 이 형식으로 나오는 대화가 있는 걸 확인함) 둘 다 잡는다.
 _PHONE_RE = re.compile(r"(?:\+82[-\s]?10|010)[-\s]?\d{3,4}[-\s]?\d{4}")
+
+# 홈 화면 "알림" 패널 컨테이너 — 실제 --dump로 확인된 auto_id.
+_NOTIFICATION_LIST_CRITERIA = dict(auto_id="NotificationsListScrollHost")
+_NOTIF_APP_NAME_AUTO_ID = "AppNameTextBlock"
+_NOTIF_TIME_AUTO_ID = "HoverDateReceivedTextBlock"
+_NOTIF_SENDER_AUTO_ID = "CompactModeTitleTextBlock"
+_NOTIF_SMS_APP_NAME = "메시지"
+
+# 발신자/시각 필드에 마이크로소프트 UI가 자동으로 끼워넣는 양방향 텍스트
+# 제어 문자(U+2066~U+2069 LTR/RTL/FIRST STRONG ISOLATE, POP DIRECTIONAL
+# ISOLATE / U+200E,U+200F LTR·RTL MARK) — 화면엔 안 보이지만 window_text()로
+# 읽으면 그대로 섞여 나와서(예: "⁨010-2405-3466⁩"), 정규식
+# 매칭 전에 제거해야 한다. 리터럴 유니코드 문자 대신 \u이스케이프로 명시해서
+# 코드에서 눈으로 봐도 헷갈리지 않게 한다.
+_BIDI_STRIP_RE = re.compile(r"[\u2066-\u2069\u200e\u200f]")
+
+
+def _clean_bidi(text: str) -> str:
+    return _BIDI_STRIP_RE.sub("", text or "").strip()
 
 
 def _connect_main_window(timeout: int = 15):
@@ -229,6 +265,82 @@ def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int
         time.sleep(poll_interval)
 
 
+def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
+    """홈 화면 "알림" 패널(NotificationsListScrollHost)을 주기적으로 훑어서
+    새 문자 알림을 발견하면 callback(phone_number, contact_name, body,
+    msg_time)을 호출한다.
+
+    watch_new_messages()(대화 목록 CVSListView 기반)와 달리 이 패널은
+    Wi-Fi 없이 블루투스만으로도 채워지는 걸 실제로 확인했다 — 행정망처럼
+    PC에 Wi-Fi를 못 붙이는 환경에서는 이쪽을 써야 새 문자를 감지할 수 있다.
+    대신 본문이 미리보기라 원문이 길면 잘려있을 수 있다는 한계가 있다.
+
+    AppNameTextBlock이 "메시지"인 항목만 문자로 취급하고, 카카오톡 등 다른
+    앱 알림은 걸러서 무시한다. 발신자가 전화번호가 아니면(예: "114")
+    watch_new_messages()와 동일한 이유로 건너뛴다."""
+    win = _connect_main_window()
+    seen = set()
+
+    print(f"[알림 감시 시작] {poll_interval}초 간격으로 알림 패널을 확인합니다. 종료: Ctrl+C")
+    while True:
+        try:
+            notif_list = win.child_window(**_NOTIFICATION_LIST_CRITERIA)
+            items = notif_list.descendants(control_type="ListItem")
+            for item in items[:max_items]:
+                parsed = _parse_notification_item(item)
+                if not parsed:
+                    continue
+                phone, contact_name, body, msg_time = parsed
+                key = f"{phone}|{msg_time}|{body[:40]}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                callback(phone, contact_name, body, msg_time)
+        except Exception as e:
+            print(f"[알림 감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
+        time.sleep(poll_interval)
+
+
+def _parse_notification_item(item) -> tuple:
+    """알림 패널의 ListItem 하나에서 (번호, "", 본문, 시각)을 뽑는다.
+    앱이름/발신자/시각은 auto_id로 정확히 찾고, 본문은 그 셋 중 어느
+    것도 아닌 나머지 Text 컨트롤을 가져온다(본문 전용 auto_id가 없어서).
+    문자 알림이 아니거나 발신자가 전화번호가 아니면 None."""
+    try:
+        app_name_el = item.child_window(auto_id=_NOTIF_APP_NAME_AUTO_ID, control_type="Text")
+        if not app_name_el.exists(timeout=0):
+            return None
+        if _clean_bidi(app_name_el.window_text()) != _NOTIF_SMS_APP_NAME:
+            return None  # 문자가 아닌 다른 앱 알림(카카오톡 등)은 건너뜀
+
+        sender_el = item.child_window(auto_id=_NOTIF_SENDER_AUTO_ID, control_type="Text")
+        sender = _clean_bidi(sender_el.window_text()) if sender_el.exists(timeout=0) else ""
+        phone_m = _PHONE_RE.search(sender)
+        if not phone_m:
+            return None
+
+        time_el = item.child_window(auto_id=_NOTIF_TIME_AUTO_ID, control_type="Text")
+        msg_time = _clean_bidi(time_el.window_text()) if time_el.exists(timeout=0) else ""
+
+        known_auto_ids = {_NOTIF_APP_NAME_AUTO_ID, _NOTIF_TIME_AUTO_ID, _NOTIF_SENDER_AUTO_ID}
+        body = ""
+        for text_el in item.descendants(control_type="Text"):
+            try:
+                auto_id = text_el.element_info.automation_id
+            except Exception:
+                auto_id = None
+            if auto_id in known_auto_ids:
+                continue
+            txt = _clean_bidi(text_el.window_text())
+            if txt:
+                body = txt
+                break
+
+        return phone_m.group(0), "", body, msg_time
+    except Exception:
+        return None
+
+
 def _parse_conversation_item(text: str):
     """대화 목록 행의 접근성 이름("{발신자}와의 대화 메시지 미리 보기
     {미리보기}")에서 (번호, 이름, 미리보기, 시각)을 뽑는다. 발신자가
@@ -248,6 +360,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dump", action="store_true", help="화면 컨트롤 구조를 출력합니다")
     parser.add_argument("--send", nargs=2, metavar=("PHONE", "BODY"), help="단발 발송 테스트")
+    parser.add_argument(
+        "--watch-notifications", action="store_true",
+        help="알림 패널 감시를 터미널에서 바로 테스트합니다 (Wi-Fi 없이도 동작, Ctrl+C로 종료)"
+    )
     args = parser.parse_args()
 
     if args.dump:
@@ -255,5 +371,7 @@ if __name__ == "__main__":
     elif args.send:
         send_message(args.send[0], args.send[1])
         print("발송 완료")
+    elif args.watch_notifications:
+        watch_notifications(lambda phone, name, body, t: print(f"[감지] {phone} ({t}): {body[:60]}"))
     else:
         parser.print_help()
