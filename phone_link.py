@@ -67,8 +67,12 @@ capture_location_auto.py의 국민신문고 화면처럼 "이름이 매번 바�
     python phone_link.py --dump                              (화면 구조 덤프)
     python phone_link.py --send "010-1234-5678" "안내 문자입니다"  (단발 발송 테스트)
     python phone_link.py --watch-notifications                (알림 패널 감시 테스트, Ctrl+C로 종료)
-    python phone_link.py --hide                               (창을 화면 밖으로 숨김, 최소화 대신)
-    python phone_link.py --restore                            (숨긴 창을 다시 화면 안으로)
+    python phone_link.py --restore                            (최소화된 창을 다시 화면으로)
+
+창을 숨기고 싶으면 watch_daemon.py를 --hide 옵션으로 실행하는 걸 권장한다
+(첫 폴링을 마친 뒤 자동으로 최소화됨) — 감시를 시작하기 전에 미리
+최소화해두면 목록이 계속 안 읽히는 문제가 있어서, 이 파일 자체에는 "지금
+바로 최소화"하는 CLI 옵션을 두지 않았다(minimize_window() 함수로는 가능).
 """
 import argparse
 import re
@@ -159,39 +163,46 @@ def dump_control_tree(depth: int = None):
     win.print_control_identifiers(depth=depth)
 
 
-def hide_off_screen():
-    """휴대폰과 연결 창을 최소화하지 않고 화면 밖으로 옮겨서 눈에 안 띄게
-    한다.
+def _restore_if_minimized(win):
+    """창이 최소화된 상태면 원래 크기로 되돌린다.
 
-    최소화(아이콘화)하면 알림 목록처럼 화면에 실제로 보이는 항목만 UI
-    요소를 만드는(가상화된) 컨트롤들이 렌더링을 멈춰서, descendants()로
-    훑어도 빈 목록만 나오는 걸 실제로 확인했다 — 즉 최소화 상태에서는
-    watch_notifications()가 새 문자를 못 잡는다. 대신 창을 "보통 크기로
-    펼쳐진 상태"는 그대로 두고 위치만 모니터 바깥의 아주 먼 좌표로
-    옮기면, 창은 계속 정상적으로 렌더링/갱신되면서도 화면엔 안 보인다.
-
-    pywinauto의 move_window 대신 win32gui를 직접 쓰는 이유는, uia 백엔드
-    래퍼가 창 이동을 지원하는지가 pywinauto 버전마다 달라서 — HWND만
-    있으면 항상 되는 win32gui.MoveWindow가 더 안정적이다."""
+    실제로 확인해보니, 창이 "처음부터" 최소화된 상태로 감시를 시작하면
+    알림 목록처럼 화면에 보이는 항목만 UI 요소를 만드는(가상화된)
+    컨트롤이 아예 렌더링되지 않아서 계속 빈 목록만 보인다. 반대로 한 번
+    정상 크기로 목록을 읽어 가상화된 요소들이 "예열"되고 나면, 그 다음엔
+    최소화해도 계속 정상적으로 감지되는 것도 확인했다. 그래서 감시
+    루프는 시작하기 직전에 항상 이 함수로 복원부터 해야 안전하다."""
     import win32con
     import win32gui
 
-    win = _connect_main_window()
     hwnd = win.handle
     if win32gui.IsIconic(hwnd):
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-    win32gui.MoveWindow(hwnd, -32000, top, right - left, bottom - top, True)
 
 
-def restore_window(x: int = 100, y: int = 100):
-    """hide_off_screen()으로 화면 밖에 둔 창을 다시 화면 안으로 가져온다."""
+def minimize_window(win=None):
+    """휴대폰과 연결 창을 지금 바로 최소화한다. win을 안 주면 새로 연결한다.
+
+    ⚠ 감시를 시작하기 "전에" 이걸 먼저 호출하면 안 된다 — 위
+    _restore_if_minimized()의 설명대로, 최소화된 채로 감시가 시작되면
+    목록이 계속 안 읽힌다. 감시 루프가 최소 한 번 목록을 읽은 뒤에
+    자동으로 호출되도록 watch_notifications()/watch_new_messages()의
+    hide_after_start=True 옵션을 쓰는 게 안전하다. 이 함수는 감시가 이미
+    한동안 잘 돌고 있는 상태에서 수동으로 즉시 최소화하고 싶을 때 쓰는
+    용도다."""
+    import win32con
     import win32gui
 
+    if win is None:
+        win = _connect_main_window()
+    win32gui.ShowWindow(win.handle, win32con.SW_MINIMIZE)
+
+
+def restore_window():
+    """minimize_window()(또는 다른 방식)로 최소화된 창을 다시 화면으로
+    복원한다."""
     win = _connect_main_window()
-    hwnd = win.handle
-    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-    win32gui.MoveWindow(hwnd, x, y, right - left, bottom - top, True)
+    _restore_if_minimized(win)
 
 
 def _phone_variants(phone_number: str) -> list:
@@ -270,19 +281,27 @@ def send_message(phone_number: str, body: str):
     time.sleep(0.5)
 
 
-def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int = 20):
+def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int = 20,
+                        hide_after_start: bool = False):
     """대화 목록 상위 max_conversations개를 주기적으로 훑어서, 마지막
     메시지 미리보기가 바뀐(=새 메시지가 온) 대화를 발견하면
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
 
     대화 목록(CVSListView) 안의 ListItem만 훑는다 — 창 전체를 훑으면 지금
     열려있는 대화창의 개별 메시지 ListItem까지 섞여 들어온다(둘 다
-    control_type="ListItem"이라 컨테이너로 구분해야 함)."""
+    control_type="ListItem"이라 컨테이너로 구분해야 함).
+
+    hide_after_start=True면 첫 폴링(목록을 한 번 읽어 가상화된 요소를
+    "예열"하는 시점)이 끝난 직후 창을 자동으로 최소화한다 — 자세한 이유는
+    _restore_if_minimized()/minimize_window() 참고."""
     win = _connect_main_window()
+    _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
     seen = {}  # {대화 식별자: 마지막으로 본 미리보기 텍스트}
+    hidden_already = not hide_after_start
 
     print(f"[감시 시작] {poll_interval}초 간격으로 대화 목록을 확인합니다. 종료: Ctrl+C")
     while True:
+        polled_ok = False
         try:
             conv_list = win.child_window(**_CONVERSATION_LIST_CRITERIA)
             items = conv_list.descendants(control_type="ListItem")
@@ -300,12 +319,18 @@ def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int
                 parsed = _parse_conversation_item(text)
                 if parsed:
                     callback(*parsed)
+            polled_ok = True
         except Exception as e:
             print(f"[감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
+        if polled_ok and not hidden_already:
+            minimize_window(win)
+            hidden_already = True
+            print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
         time.sleep(poll_interval)
 
 
-def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
+def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30,
+                         hide_after_start: bool = False):
     """홈 화면 "알림" 패널(NotificationsListScrollHost)을 주기적으로 훑어서
     새 문자 알림을 발견하면 (그 알림 카드에 새로 쌓인 줄마다 한 번씩)
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
@@ -327,12 +352,21 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
     보내는 극히 드문 경우는 두 번째가 누락될 수 있다.
 
     AppNameTextBlock이 "메시지"인 항목만 문자로 취급하고, 카카오톡 등 다른
-    앱 알림은 걸러서 무시한다."""
+    앱 알림은 걸러서 무시한다.
+
+    hide_after_start=True면 첫 폴링이 끝난 직후 창을 자동으로 최소화한다.
+    실제로 테스트해보니 "시작할 때부터" 최소화돼 있으면 이 목록이 계속
+    비어있게 읽히지만, 일단 한 번 정상 크기로 읽고 나면 그 뒤로는
+    최소화한 채로도 계속 정상적으로 감지되는 걸 확인했다 — 그래서 시작
+    직후 딱 한 번만 "정상 크기로 예열 → 최소화"를 자동으로 해준다."""
     win = _connect_main_window()
+    _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
     seen_lines_by_sender = {}  # {발신자: {이미 콜백으로 넘긴 본문 줄, ...}}
+    hidden_already = not hide_after_start
 
     print(f"[알림 감시 시작] {poll_interval}초 간격으로 알림 패널을 확인합니다. 종료: Ctrl+C")
     while True:
+        polled_ok = False
         try:
             notif_list = win.child_window(**_NOTIFICATION_LIST_CRITERIA)
             items = notif_list.descendants(control_type="ListItem")
@@ -347,8 +381,13 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
                         continue
                     already_seen.add(line)
                     callback(phone, contact_name, line, msg_time)
+            polled_ok = True
         except Exception as e:
             print(f"[알림 감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
+        if polled_ok and not hidden_already:
+            minimize_window(win)
+            hidden_already = True
+            print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
         time.sleep(poll_interval)
 
 
@@ -457,10 +496,9 @@ if __name__ == "__main__":
         help="알림 패널 감시를 터미널에서 바로 테스트합니다 (Wi-Fi 없이도 동작, Ctrl+C로 종료)"
     )
     parser.add_argument(
-        "--hide", action="store_true",
-        help="창을 최소화 대신 화면 밖으로 옮겨서 숨깁니다(최소화하면 알림 목록이 갱신을 멈춤)"
+        "--restore", action="store_true",
+        help="최소화된 휴대폰과 연결 창을 다시 화면으로 복원합니다"
     )
-    parser.add_argument("--restore", action="store_true", help="--hide로 숨긴 창을 다시 화면 안으로 가져옵니다")
     args = parser.parse_args()
 
     if args.dump:
@@ -470,9 +508,6 @@ if __name__ == "__main__":
         print("발송 완료")
     elif args.watch_notifications:
         watch_notifications(lambda phone, name, body, t: print(f"[감지] {phone} ({t}): {body[:60]}"))
-    elif args.hide:
-        hide_off_screen()
-        print("창을 화면 밖으로 숨겼습니다. 되돌리려면: python phone_link.py --restore")
     elif args.restore:
         restore_window()
         print("창을 화면 안으로 되돌렸습니다.")

@@ -122,21 +122,18 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--hide", action="store_true",
-        help="휴대폰과 연결 창을 최소화 대신 화면 밖으로 옮겨서 숨긴 채로 감시를 시작합니다 "
-             "(최소화하면 알림 목록이 갱신을 멈춰서 새 문자를 못 잡는 걸 확인했음)"
+        help="첫 폴링을 마친 직후 휴대폰과 연결 창을 자동으로 최소화합니다 "
+             "(처음부터 최소화된 채로 시작하면 목록이 계속 안 읽히는 걸 확인해서, "
+             "시작 시점엔 창을 보이게 뒀다가 한 번 읽고 난 뒤에 숨김)"
     )
     args = parser.parse_args()
-
-    if args.hide:
-        phone_link.hide_off_screen()
-        print("[숨김] 휴대폰과 연결 창을 화면 밖으로 옮겼습니다.")
 
     reporter = make_reporter(args.server, merge_window=args.merge_window)
     try:
         if args.source == "notifications":
-            phone_link.watch_notifications(reporter, poll_interval=args.interval)
+            phone_link.watch_notifications(reporter, poll_interval=args.interval, hide_after_start=args.hide)
         else:
-            phone_link.watch_new_messages(reporter, poll_interval=args.interval)
+            phone_link.watch_new_messages(reporter, poll_interval=args.interval, hide_after_start=args.hide)
     except KeyboardInterrupt:
         print("\n[종료] 합치는 중이던 메시지를 마저 저장합니다...")
         reporter.flush_all()
