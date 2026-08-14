@@ -304,8 +304,18 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
 def _parse_notification_item(item) -> tuple:
     """알림 패널의 ListItem 하나에서 (번호, "", 본문, 시각)을 뽑는다.
     앱이름/발신자/시각은 auto_id로 정확히 찾고, 본문은 그 셋 중 어느
-    것도 아닌 나머지 Text 컨트롤을 가져온다(본문 전용 auto_id가 없어서).
-    문자 알림이 아니거나 발신자가 전화번호가 아니면 None."""
+    것도 아닌 나머지 Text 컨트롤들을 가져온다(본문 전용 auto_id가 없고,
+    실제로 문자가 여러 줄이면 줄마다 별도 Text 컨트롤로 나오는 걸 확인했다
+    — 그래서 첫 번째 하나만 쓰지 않고 전부 이어붙인다).
+    문자 알림이 아니거나 발신자가 전화번호가 아니면 None.
+
+    ⚠ 여기서 나는 예외는 절대 조용히 삼키지 않는다 — 예전에 통째로
+    try/except로 감싸서 None을 돌려줬더니, 실제로는 뭔가 실패하고 있는데도
+    "감지된 게 없다"처럼 보여서 원인을 못 찾는 문제가 있었다. 알림 항목이
+    갱신되는 도중(예: 문자가 실시간으로 늘어나는 경우) UIA 요소 참조가
+    끊겨서 COM 예외가 나는 경우가 실제로 있을 수 있는데, 그런 항목 하나만
+    건너뛰고 나머지는 계속 처리해야 하므로 항목 단위로만 캐치하고 그 내용을
+    출력한다."""
     try:
         app_name_el = item.child_window(auto_id=_NOTIF_APP_NAME_AUTO_ID, control_type="Text")
         if not app_name_el.exists(timeout=0):
@@ -323,7 +333,7 @@ def _parse_notification_item(item) -> tuple:
         msg_time = _clean_bidi(time_el.window_text()) if time_el.exists(timeout=0) else ""
 
         known_auto_ids = {_NOTIF_APP_NAME_AUTO_ID, _NOTIF_TIME_AUTO_ID, _NOTIF_SENDER_AUTO_ID}
-        body = ""
+        body_lines = []
         for text_el in item.descendants(control_type="Text"):
             try:
                 auto_id = text_el.element_info.automation_id
@@ -333,11 +343,12 @@ def _parse_notification_item(item) -> tuple:
                 continue
             txt = _clean_bidi(text_el.window_text())
             if txt:
-                body = txt
-                break
+                body_lines.append(txt)
+        body = " ".join(body_lines)
 
         return phone_m.group(0), "", body, msg_time
-    except Exception:
+    except Exception as e:
+        print(f"[알림 감시] 항목 하나를 읽다 오류가 나서 건너뜁니다: {e!r}")
         return None
 
 
