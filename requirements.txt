@@ -1,0 +1,7 @@
+Flask==3.0.3
+requests==2.32.3
+
+# 아래 두 개는 윈도우 전용 (휴대폰 연결 앱 UI 자동화용) — 리눅스/개발
+# 환경에서는 설치할 필요 없음. app.py 자체(대시보드/DB)는 이 둘 없이도 동작함.
+pywinauto==0.6.8; sys_platform == "win32"
+pywin32==306; sys_platform == "win32"

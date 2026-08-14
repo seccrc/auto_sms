@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>auto_sms — 휴대폰 문자 자동화</title>
+<style>
+  :root {
+    --ink: #171a21;
+    --ink-soft: #5b6270;
+    --ink-faint: #9298a3;
+    --paper: #eef1f5;
+    --surface: #ffffff;
+    --line: #e3e6ec;
+    --accent: #2148c0;
+    --accent-soft: #e8edfb;
+    --good: #157f5a;
+    --bad: #c0392b;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', 'Segoe UI', sans-serif;
+    background: var(--paper);
+    margin: 0;
+    padding: 28px clamp(16px, 4vw, 40px);
+    color: var(--ink);
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  .sub { color: var(--ink-soft); font-size: 13px; margin: 0 0 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 14px; color: var(--ink); }
+  label { display: block; font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
+  select, input[type=text], textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    font-family: inherit; font-size: 13px; outline: none; margin-bottom: 12px; background: #fff;
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  button {
+    font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    border: none; border-radius: 8px; padding: 9px 16px;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:disabled { background: #9fb0e0; cursor: default; }
+  .btn-ghost { background: var(--accent-soft); color: var(--accent); }
+  .btn-danger { background: #fbe4e1; color: var(--bad); }
+  .tpl-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px;
+  }
+  .tpl-item:last-child { border-bottom: none; }
+  .tpl-title { font-weight: 600; }
+  .tpl-body { color: var(--ink-soft); font-size: 12px; margin-top: 2px; white-space: pre-line; }
+  .tpl-actions button { padding: 4px 9px; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--ink-soft); font-weight: 600; }
+  .pill { font-size: 11px; padding: 2px 7px; border-radius: 9px; font-weight: 600; }
+  .pill-in { background: var(--accent-soft); color: var(--accent); }
+  .pill-out { background: #e5f4ee; color: var(--good); }
+  .empty { color: var(--ink-faint); font-size: 13px; padding: 10px 0; }
+  #sendStatus { font-size: 12.5px; margin-top: 4px; }
+  #sendStatus.ok { color: var(--good); }
+  #sendStatus.err { color: var(--bad); }
+</style>
+</head>
+<body>
+
+<h1>📱 auto_sms</h1>
+<p class="sub">휴대폰 연결 앱으로 수신한 문자를 자동 저장하고, 상용문구로 원클릭 발송합니다.</p>
+
+<div class="grid">
+  <div>
+    <div class="card">
+      <h2>✉️ 상용문구 발송</h2>
+      <label>수신자</label>
+      <select id="sendPhoneSelect" onchange="onRecipientChange()">
+        <option value="">— 최근 대화 상대에서 선택 —</option>
+      </select>
+      <input type="text" id="sendPhoneInput" placeholder="또는 번호 직접 입력 (예: 010-1234-5678)">
+
+      <label>상용문구</label>
+      <select id="sendTemplateSelect" onchange="onTemplateChange()">
+        <option value="">— 문구 선택 (또는 아래 직접 입력) —</option>
+      </select>
+
+      <label>내용</label>
+      <textarea id="sendBodyInput" placeholder="발송할 문자 내용"></textarea>
+
+      <button class="btn-primary" id="sendBtn" onclick="sendSms()">발송</button>
+      <div id="sendStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>💬 상용문구 관리</h2>
+      <div id="templateList"><div class="empty">불러오는 중…</div></div>
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+        <input type="hidden" id="tplEditId">
+        <label>문구 제목</label>
+        <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
+        <label>문구 내용</label>
+        <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
+        <div class="row">
+          <button class="btn-primary" onclick="saveTemplate()">저장</button>
+          <button class="btn-ghost" onclick="resetTemplateForm()">새 문구로 초기화</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📨 최근 메시지</h2>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr><th>구분</th><th>번호</th><th>이름</th><th>내용</th><th>시각</th></tr>
+        </thead>
+        <tbody id="msgTableBody">
+          <tr><td colspan="5" class="empty">불러오는 중…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
