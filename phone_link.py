@@ -482,7 +482,12 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30,
         polled_ok = False
         try:
             notif_list = win.child_window(**_NOTIFICATION_LIST_CRITERIA)
-            items = notif_list.descendants(control_type="ListItem")
+            # 알림이 하나도 없으면("새 알림 없음") 이 컨테이너 자체가 트리에
+            # 안 생기는 걸 실제로 확인했다 — ElementNotFoundError가 나는 게
+            # 정상적인 "알림 없음" 상태이지, 진짜 오류가 아니다. exists()로
+            # 먼저 확인해서, 없으면 조용히 빈 목록으로 취급하고 다음 주기로
+            # 넘어간다(에러로 취급해 재연결까지 할 필요 없음).
+            items = notif_list.descendants(control_type="ListItem") if notif_list.exists(timeout=1) else []
             for item in items[:max_items]:
                 parsed = _parse_notification_item(item)
                 if not parsed:
