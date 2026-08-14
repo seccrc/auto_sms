@@ -141,7 +141,7 @@ async function loadMessages() {
                 <td><span class="pill ${m.direction === 'in' ? 'pill-in' : 'pill-out'}">${m.direction === 'in' ? '수신' : '발신'}</span></td>
                 <td>${esc(m.phone_number)}</td>
                 <td>${esc(m.contact_name || '')}</td>
-                <td>${esc(m.body)}</td>
+                <td class="msg-body">${esc(m.body)}</td>
                 <td>${esc(m.msg_time || m.created_at || '')}</td>
             </tr>`).join('');
     } catch (e) {
