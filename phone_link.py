@@ -322,6 +322,12 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
 # 확인됨). 부모가 Button인 Text는 걸러내는 걸 기본으로 하되, 혹시 그 판단이
 # 실패하는 경우에 대비해 알려진 버튼 라벨 문자열도 이중으로 걸러낸다.
 _NOTIF_BUTTON_LABELS = {"통화", "읽음으로 표시", "보내기", "이모지", "GIF", "이미지 첨부"}
+# 알림에서 바로 빠른 회신을 입력하는 동안, 카드가 잠깐 "회신 작성/전송" 상태로
+# 바뀌면서 발신자 칸에 상대방 이름 대신 "나"가 뜨는 걸 실제로 확인했다(그때
+# 본문 칸엔 아직 조합 중인 IME 글자가 잡혀서 자모가 깨진 채로 들어오기도 함).
+# 실제 문자 발신자가 "나"일 수는 없으니, 이런 과도기 상태는 저장하지 않고
+# 건너뛴다 — 카드가 원래 상태로 돌아오면 다음 폴링에서 정상적으로 다시 읽힌다.
+_NOTIF_SELF_SENDER_LABELS = {"나"}
 
 
 def _parse_notification_item(item) -> tuple:
@@ -341,8 +347,9 @@ def _parse_notification_item(item) -> tuple:
     문자 알림이 아니면 None. 발신자는 전화번호 형식이 아니어도(폰
     주소록에 저장된 연락처 이름 등) 그대로 받는다 — 처음엔 전화번호
     패턴만 걸러 받았는데, 그러면 저장된 연락처 이름으로 뜨는 실제 사람과의
-    문자까지 같이 놓치는 문제가 있어서 뺐다. sender가 아예 비어있는
-    경우만 걸러낸다.
+    문자까지 같이 놓치는 문제가 있어서 뺐다. sender가 비어있거나
+    "나"(알림에서 직접 회신을 입력하는 동안 카드가 잠깐 그렇게 표시되는
+    과도기 상태 — _NOTIF_SELF_SENDER_LABELS 참고)인 경우만 걸러낸다.
 
     ⚠ 여기서 나는 예외는 절대 조용히 삼키지 않는다 — 예전에 통째로
     try/except로 감싸서 None을 돌려줬더니, 실제로는 뭔가 실패하고 있는데도
@@ -379,6 +386,8 @@ def _parse_notification_item(item) -> tuple:
             return None  # 문자가 아닌 다른 앱 알림(카카오톡 등)은 건너뜀
         if not sender:
             return None
+        if sender in _NOTIF_SELF_SENDER_LABELS:
+            return None  # 알림에서 직접 회신 입력 중인 과도기 상태 — 실제 수신 문자 아님
 
         return sender, "", body_lines, msg_time
     except Exception as e:
