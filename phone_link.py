@@ -241,6 +241,27 @@ def restore_window():
     _restore_if_minimized(win)
 
 
+def _reconnect_after_failure(win):
+    """목록을 읽다가 실패했을 때, 다음 주기를 위해 연결을 새로 시도해서
+    win 참조를 갱신한다.
+
+    실제로 겪은 문제: 창을 최소화한 직후부터
+    COMError(-2147220991, ...)("이벤트에서 가입자를 불러낼 수 없습니다",
+    실제로는 UI Automation의 UIA_E_ELEMENTNOTAVAILABLE)가 매 주기 계속
+    반복됐다 — 최소화하기 전에 얻어둔 win/notif_list 참조가 최소화
+    이후로 무효화된 채 남아있어서, 죽은 참조로 계속 다시 읽으려다 매번
+    똑같이 실패한 것으로 보인다. 실패할 때마다(또는 방금 막 최소화한
+    직후에) 이 함수로 참조를 새로 갱신해두면, _connect_main_window()가
+    이제 visible_only=False로 찾으므로 창이 최소화된 상태여도 정상적인
+    새 참조를 얻을 수 있다. 재연결마저 실패하면 기존 win을 그대로
+    돌려줘서 다음 주기에 다시 시도하게 한다."""
+    try:
+        return _connect_main_window()
+    except Exception as e:
+        print(f"[감시] 재연결 실패, 다음 주기에 다시 시도합니다: {e!r}")
+        return win
+
+
 def _phone_variants(phone_number: str) -> list:
     """같은 번호라도 화면엔 010-XXXX-XXXX 또는 +82 10-XXXX-XXXX 두 형식
     중 하나로 대화가 저장돼 있을 수 있어서, 기존 대화를 찾을 때 두 형식을
@@ -358,9 +379,11 @@ def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int
             polled_ok = True
         except Exception as e:
             print(f"[감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
+            win = _reconnect_after_failure(win)
         if polled_ok and not hidden_already:
             minimize_window(win)
             hidden_already = True
+            win = _reconnect_after_failure(win)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
             print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
         time.sleep(poll_interval)
 
@@ -429,9 +452,11 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30,
             polled_ok = True
         except Exception as e:
             print(f"[알림 감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
+            win = _reconnect_after_failure(win)
         if polled_ok and not hidden_already:
             minimize_window(win)
             hidden_already = True
+            win = _reconnect_after_failure(win)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
             print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
         time.sleep(poll_interval)
 
