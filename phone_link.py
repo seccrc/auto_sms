@@ -82,7 +82,8 @@ import time
 # 리눅스/개발 환경에서는 실패한다. app.py의 /api/send 라우트가 이 모듈을
 # 함수 안에서 지연 import하는 것도 이 때문 — 그래야 대시보드 서버 자체는
 # 어떤 OS에서든 문제없이 뜬다.
-from pywinauto.application import Application
+from pywinauto import findwindows
+from pywinauto.application import Application, WindowSpecification
 from pywinauto import Desktop
 
 # 실행 파일 이름 — 프로세스 기준으로 창을 찾는 게 제목 문자열로 찾는 것보다
@@ -128,6 +129,35 @@ def _clean_bidi(text: str) -> str:
     return _BIDI_STRIP_RE.sub("", text or "").strip()
 
 
+def _top_window_any_state(app, timeout: int):
+    """app.top_window()와 하는 일은 같지만(그 프로세스의 최상위 창을 찾음),
+    최소화된 창도 찾을 수 있다.
+
+    실제로 겪은 문제: app.top_window()는 내부적으로
+    findwindows.find_elements(process=..., ...)를 visible_only=True(기본값)로
+    호출하는데, pywinauto의 uia 백엔드에서 "visible"은 곧
+    `not CurrentIsOffscreen`이다 — 그런데 최소화된 창은 UI Automation
+    관점에서 IsOffscreen=True로 취급돼서, 최소화 상태에서 감시를 시작하면
+    top_window()가 "No windows for that process could be found"로
+    실패한다(창이 없는 게 아니라 검색 조건에서 걸러진 것). 그래서 여기서는
+    visible_only=False로 직접 검색한다."""
+    deadline = time.time() + timeout
+    windows = []
+    while True:
+        windows = findwindows.find_elements(process=app.process, backend="uia", visible_only=False)
+        if windows or time.time() >= deadline:
+            break
+        time.sleep(0.5)
+    if not windows:
+        raise RuntimeError("No windows for that process could be found")
+    criteria = {"backend": "uia"}
+    if windows[0].handle:
+        criteria["handle"] = windows[0].handle
+    else:
+        criteria["title"] = windows[0].name
+    return WindowSpecification(criteria)
+
+
 def _connect_main_window(timeout: int = 15):
     """이미 실행 중인 휴대폰과 연결 앱 창에 붙는다. 앱이 안 떠 있으면
     RuntimeError — 자동 실행은 시도하지 않는다(사람이 먼저 로그인/연결 상태를
@@ -137,16 +167,22 @@ def _connect_main_window(timeout: int = 15):
     제목에 우연히 같은 단어가 들어간 다른 창(예: 이 요청 문구를 저장해둔
     메모장)을 잘못 잡을 위험이 있다는 걸 실제로 확인했다. 프로세스 연결이
     실패할 때만(예: 실행 파일명이 버전마다 다를 수 있어서) 제목 정규식으로
-    대체 시도한다."""
+    대체 시도한다.
+
+    두 경로 모두 visible_only=False로 찾고, wait()에서도 "visible" 조건은
+    빼서 "exists enabled"만 확인한다 — 앱이 최소화된 채로(작업 표시줄에만
+    있는 채로) watch_daemon.py를 시작해도 연결에 성공하게 하기 위함
+    (_top_window_any_state() 설명 참고). 이후 실제로 목록을 읽으려면
+    _restore_if_minimized()로 창을 복원해야 한다."""
     try:
         app = Application(backend="uia").connect(path=PROCESS_NAME, timeout=timeout)
-        win = app.top_window()
-        win.wait("exists enabled visible", timeout=timeout)
+        win = _top_window_any_state(app, timeout)
+        win.wait("exists enabled", timeout=timeout)
         return win
     except Exception as e_proc:
         try:
-            win = Desktop(backend="uia").window(title_re=WINDOW_TITLE_RE)
-            win.wait("exists enabled visible", timeout=timeout)
+            win = Desktop(backend="uia").window(title_re=WINDOW_TITLE_RE, visible_only=False)
+            win.wait("exists enabled", timeout=timeout)
             return win
         except Exception as e_title:
             raise RuntimeError(
