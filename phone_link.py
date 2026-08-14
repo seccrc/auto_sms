@@ -301,8 +301,17 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
         time.sleep(poll_interval)
 
 
+# 알림 카드 안의 버튼(통화 걸기/읽음으로 표시/보내기 등)에도 접근성 이름이
+# control_type="Text"인 하위 라벨이 딸려있어서(예: Button('통화') 안의
+# Static('통화')), auto_id 없는 Text를 전부 "본문"으로 잡으면 이 라벨들까지
+# 본문에 섞여 들어온다("...안녕하세요~~~ 통화 읽음으로 표시" 처럼 실제로
+# 확인됨). 부모가 Button인 Text는 걸러내는 걸 기본으로 하되, 혹시 그 판단이
+# 실패하는 경우에 대비해 알려진 버튼 라벨 문자열도 이중으로 걸러낸다.
+_NOTIF_BUTTON_LABELS = {"통화", "읽음으로 표시", "보내기", "이모지", "GIF", "이미지 첨부"}
+
+
 def _parse_notification_item(item) -> tuple:
-    """알림 패널의 ListItem 하나에서 (번호, "", 본문, 시각)을 뽑는다.
+    """알림 패널의 ListItem 하나에서 (번호, "", 최신 본문 한 줄, 시각)을 뽑는다.
 
     ⚠ item.child_window(...)를 쓰지 않는다 — 실제로 돌려봤더니
     "'ListItemWrapper' object has no attribute 'child_window'" 에러가 났다.
@@ -310,17 +319,22 @@ def _parse_notification_item(item) -> tuple:
     pywinauto에서 child_window()를 지원하지 않는 걸로 보인다 — descendants()는
     되는 걸 이미 상위 호출(win.child_window(...).descendants(...))에서
     확인했으므로, 이 함수도 descendants()로 한 번만 훑어서 auto_id로
-    분류하는 방식으로 통일한다. 앱이름/발신자/시각은 auto_id로 정확히
-    골라내고, 나머지 Text 컨트롤은 전부 본문 줄로 취급해 이어붙인다(문자가
-    길면 줄마다 별도 Text 컨트롤로 나오는 걸 확인했다).
+    분류하는 방식으로 통일한다.
+
+    본문은 "마지막 줄 하나만" 가져온다 — 같은 상대와 문자를 주고받을수록
+    알림 카드 하나가 "A" -> "A B" -> "A B C"처럼 계속 누적되는 걸 실제로
+    확인했다(각 줄이 별도 Text 컨트롤로 쌓임). 전부 이어붙이면 감시
+    주기마다 "새 본문"으로 보여서 DB에 점점 길어지는 내용이 중복 저장되는
+    문제가 있었다 — 매번 가장 마지막(=가장 최근) 줄 하나만 가져오면
+    실질적으로 이번에 새로 추가된 문자만 자연스럽게 뽑힌다.
 
     문자 알림이 아니거나 발신자가 전화번호가 아니면 None.
 
     ⚠ 여기서 나는 예외는 절대 조용히 삼키지 않는다 — 예전에 통째로
     try/except로 감싸서 None을 돌려줬더니, 실제로는 뭔가 실패하고 있는데도
-    "감지된 게 없다"처럼 보여서 원인(바로 이 child_window 문제)을 한참
-    못 찾았다. 항목 하나만 건너뛰고 나머지는 계속 처리하되, 그 내용을
-    출력해서 다음에 또 이런 문제가 생기면 바로 보이게 한다."""
+    "감지된 게 없다"처럼 보여서 원인(child_window 문제)을 한참 못 찾았다.
+    항목 하나만 건너뛰고 나머지는 계속 처리하되, 그 내용을 출력해서 다음에
+    또 이런 문제가 생기면 바로 보이게 한다."""
     try:
         app_name = ""
         sender = ""
@@ -339,6 +353,12 @@ def _parse_notification_item(item) -> tuple:
             elif auto_id == _NOTIF_TIME_AUTO_ID:
                 msg_time = txt
             elif txt:
+                try:
+                    parent_type = text_el.parent().element_info.control_type
+                except Exception:
+                    parent_type = None
+                if parent_type == "Button" or txt in _NOTIF_BUTTON_LABELS:
+                    continue  # 버튼 라벨(통화/읽음으로 표시 등) — 본문 아님
                 body_lines.append(txt)
 
         if app_name != _NOTIF_SMS_APP_NAME:
@@ -348,7 +368,8 @@ def _parse_notification_item(item) -> tuple:
         if not phone_m:
             return None
 
-        return phone_m.group(0), "", " ".join(body_lines), msg_time
+        body = body_lines[-1] if body_lines else ""
+        return phone_m.group(0), "", body, msg_time
     except Exception as e:
         print(f"[알림 감시] 항목 하나를 읽다 오류가 나서 건너뜁니다: {e!r}")
         return None
