@@ -518,6 +518,16 @@ _NOTIF_BUTTON_LABELS = {"통화", "읽음으로 표시", "보내기", "이모지
 # 본문 칸엔 아직 조합 중인 IME 글자가 잡혀서 자모가 깨진 채로 들어오기도 함).
 # 실제 문자 발신자가 "나"일 수는 없으니, 이런 과도기 상태는 저장하지 않고
 # 건너뛴다 — 카드가 원래 상태로 돌아오면 다음 폴링에서 정상적으로 다시 읽힌다.
+#
+# 같은 카드 "안"에서도 쓰인다: 한 상대와 대화를 주고받은 지 오래돼 카드가
+# 길어지면, 중간중간 "나" 또는 "{상대 번호}" 같은 소제목이 다시 등장해서
+# "여기부터는 누가 보낸 거다"를 알려주는 걸 실제 화면에서 확인했다(맨 위
+# CompactModeTitleTextBlock과 달리 이 소제목들은 auto_id가 없는 평범한
+# Text라서, 안 걸러내면 "나"/"010-2405-3466" 같은 줄이 그대로 본문 목록에
+# 섞여 들어간다 — 실제로 [저장] 010-2405-3466: 나 / [저장] 010-2405-3466:
+# 010-2405-3466 처럼 저장되는 걸 확인했다). _parse_notification_item()에서
+# 본문 후보 텍스트가 이 집합에 있거나 이미 확정된 sender와 완전히 같으면
+# 소제목으로 보고 건너뛴다.
 _NOTIF_SELF_SENDER_LABELS = {"나"}
 
 
@@ -565,6 +575,8 @@ def _parse_notification_item(item) -> tuple:
             elif auto_id == _NOTIF_TIME_AUTO_ID:
                 msg_time = txt
             elif txt:
+                if txt in _NOTIF_SELF_SENDER_LABELS or txt == sender:
+                    continue  # 스레드 중간에 "누가 말했는지" 다시 알려주는 소제목 — 본문 아님
                 try:
                     parent_type = text_el.parent().element_info.control_type
                 except Exception:
