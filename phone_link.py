@@ -51,10 +51,20 @@ import time
 from pywinauto.application import Application
 from pywinauto import Desktop
 
+# 실행 파일 이름 — 프로세스 기준으로 창을 찾는 게 제목 문자열로 찾는 것보다
+# 훨씬 안전하다(아래 WINDOW_TITLE_RE의 실패 사례 참고). 마이크로소프트 공식
+# Phone Link 앱의 알려진 실행 파일명.
+PROCESS_NAME = "PhoneExperienceHost.exe"
+
 # 앱 창 제목 — 실제 화면에서 확인된 "휴대폰과 연결"(조사 포함)과, 혹시 다른
 # 버전/영문 설정에서 나올 수 있는 "휴대폰 연결"/"Phone Link"/"Your Phone"도
-# 함께 커버한다.
-WINDOW_TITLE_RE = r".*(휴대폰\S*\s*연결|Phone Link|Your Phone).*"
+# 함께 커버한다. ^...$ 로 양끝을 앵커링해서 "제목 전체가 정확히 이 문구"일
+# 때만 매칭한다 — 처음엔 .*(...).* 로 느슨하게 잡았다가, 사용자가 이 요청
+# 문구("...휴대폰 연결 앱을 통해서...")를 메모장에 저장해둔 창까지 "휴대폰
+# 연결 앱"으로 오인해서 --dump가 메모장 창을 잡아버리는 실제 오작동을
+# 확인했다 — 느슨한 부분 일치는 제목에 우연히 같은 단어가 들어간 아무
+# 창이나 다 걸려버리므로 위험하다.
+WINDOW_TITLE_RE = r"^(휴대폰\S*\s*연결|Phone Link|Your Phone)$"
 
 # ── 아래 3개는 실제 화면에서 --dump 결과를 보고 확정해야 하는 자리표시자 ──
 # 대화 목록(왼쪽 패널)의 각 항목. 보통 ListItem/DataItem 컨트롤타입.
@@ -71,16 +81,29 @@ _NEW_MESSAGE_BUTTON_NAME_CANDIDATES = ["새 메시지", "New message", "새 채�
 def _connect_main_window(timeout: int = 15):
     """이미 실행 중인 휴대폰과 연결 앱 창에 붙는다. 앱이 안 떠 있으면
     RuntimeError — 자동 실행은 시도하지 않는다(사람이 먼저 로그인/연결 상태를
-    확인해두는 게 안전하다는 게 이 프로젝트의 다른 스크립트들과 같은 원칙)."""
+    확인해두는 게 안전하다는 게 이 프로젝트의 다른 스크립트들과 같은 원칙).
+
+    프로세스 이름(PROCESS_NAME) 기준으로 먼저 찾는다 — 창 제목으로 찾으면
+    제목에 우연히 같은 단어가 들어간 다른 창(예: 이 요청 문구를 저장해둔
+    메모장)을 잘못 잡을 위험이 있다는 걸 실제로 확인했다. 프로세스 연결이
+    실패할 때만(예: 실행 파일명이 버전마다 다를 수 있어서) 제목 정규식으로
+    대체 시도한다."""
     try:
-        win = Desktop(backend="uia").window(title_re=WINDOW_TITLE_RE)
+        app = Application(backend="uia").connect(path=PROCESS_NAME, timeout=timeout)
+        win = app.top_window()
         win.wait("exists enabled visible", timeout=timeout)
         return win
-    except Exception as e:
-        raise RuntimeError(
-            "휴대폰과 연결 앱 창을 찾지 못했습니다. 앱이 실행 중이고 휴대폰과 "
-            f"연결된 상태인지 확인해주세요. 원인: {e!r}"
-        )
+    except Exception as e_proc:
+        try:
+            win = Desktop(backend="uia").window(title_re=WINDOW_TITLE_RE)
+            win.wait("exists enabled visible", timeout=timeout)
+            return win
+        except Exception as e_title:
+            raise RuntimeError(
+                "휴대폰과 연결 앱 창을 찾지 못했습니다. 앱이 실행 중이고 휴대폰과 "
+                f"연결된 상태인지 확인해주세요. (프로세스 연결 실패: {e_proc!r}, "
+                f"제목 검색도 실패: {e_title!r})"
+            )
 
 
 def dump_control_tree(depth: int = None):
