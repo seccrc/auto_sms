@@ -108,6 +108,33 @@ def make_reporter(server: str, merge_window: float = 0.0):
     return report
 
 
+def _load_recent_seen(server: str, limit: int = 300) -> dict:
+    """서버(app.py)에 이미 저장된 최근 수신 메시지를 {번호: {본문, ...}}
+    형태로 불러온다.
+
+    watch_daemon.py를 껐다 켜면 phone_link.watch_notifications()의 "이미
+    처리한 줄" 기억이 메모리라서 초기화되는데, 그 시점에 알림 카드에
+    예전 내용이 그대로 남아있으면 이미 저장된 걸 "새 줄"로 착각해서 서버로
+    또 올리는 문제가 실제로 있었다. 시작하기 전에 서버가 이미 아는 내용을
+    미리 불러와서 phone_link 쪽 중복 방지 상태를 채워두면, 알림 자체는
+    안 건드리면서도 재시작으로 인한 중복 저장을 막을 수 있다.
+
+    서버 연결에 실패하면 빈 상태로 시작한다 — 이 함수가 실패한다고 감시
+    자체를 못 하게 막을 이유는 없고, 최악의 경우도 예전과 같은(중복 가능)
+    동작으로 돌아가는 것뿐이다."""
+    seen = {}
+    try:
+        r = requests.get(f"{server}/api/messages", params={"limit": limit}, timeout=10)
+        r.raise_for_status()
+        for m in r.json().get("messages", []):
+            if m.get("direction") != "in":
+                continue
+            seen.setdefault(m["phone_number"], set()).add(m["body"])
+    except Exception as e:
+        print(f"[경고] 기존 메시지를 불러오지 못해 중복 방지 없이 시작합니다: {e!r}")
+    return seen
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", default="http://127.0.0.1:8060")
@@ -131,7 +158,11 @@ if __name__ == "__main__":
     reporter = make_reporter(args.server, merge_window=args.merge_window)
     try:
         if args.source == "notifications":
-            phone_link.watch_notifications(reporter, poll_interval=args.interval, hide_after_start=args.hide)
+            initial_seen = _load_recent_seen(args.server)
+            phone_link.watch_notifications(
+                reporter, poll_interval=args.interval, hide_after_start=args.hide,
+                seen_lines_by_sender=initial_seen,
+            )
         else:
             phone_link.watch_new_messages(reporter, poll_interval=args.interval, hide_after_start=args.hide)
     except KeyboardInterrupt:

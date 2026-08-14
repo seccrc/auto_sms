@@ -366,7 +366,7 @@ def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int
 
 
 def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30,
-                         hide_after_start: bool = False):
+                         hide_after_start: bool = False, seen_lines_by_sender: dict = None):
     """홈 화면 "알림" 패널(NotificationsListScrollHost)을 주기적으로 훑어서
     새 문자 알림을 발견하면 (그 알림 카드에 새로 쌓인 줄마다 한 번씩)
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
@@ -394,10 +394,19 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30,
     실제로 테스트해보니 "시작할 때부터" 최소화돼 있으면 이 목록이 계속
     비어있게 읽히지만, 일단 한 번 정상 크기로 읽고 나면 그 뒤로는
     최소화한 채로도 계속 정상적으로 감지되는 걸 확인했다 — 그래서 시작
-    직후 딱 한 번만 "정상 크기로 예열 → 최소화"를 자동으로 해준다."""
+    직후 딱 한 번만 "정상 크기로 예열 → 최소화"를 자동으로 해준다.
+
+    seen_lines_by_sender를 넘기면 그 상태로 시작한다({발신자: {이미 처리한
+    본문 줄, ...}}) — watch_daemon.py를 재시작해도, 알림 카드에 예전
+    내용이 그대로 남아있으면 이미 저장된 걸 "새 줄"로 착각해서 서버로 또
+    올리는 문제가 있었다. 재시작 전에 서버에 이미 저장된 내용으로 이
+    딕셔너리를 미리 채워서 넘기면(watch_daemon.py의 _load_recent_seen()
+    참고), 알림은 그대로 두면서도 중복 전송을 막을 수 있다. 안 주면
+    빈 상태로 시작한다(기존 동작과 동일)."""
     win = _connect_main_window()
     _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
-    seen_lines_by_sender = {}  # {발신자: {이미 콜백으로 넘긴 본문 줄, ...}}
+    if seen_lines_by_sender is None:
+        seen_lines_by_sender = {}  # {발신자: {이미 콜백으로 넘긴 본문 줄, ...}}
     hidden_already = not hide_after_start
 
     print(f"[알림 감시 시작] {poll_interval}초 간격으로 알림 패널을 확인합니다. 종료: Ctrl+C")
