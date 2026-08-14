@@ -21,8 +21,15 @@ capture_location_auto.py의 국민신문고 화면처럼 "이름이 매번 바�
       "{발신자}와의 대화 메시지 미리 보기 {마지막 메시지 미리보기}"
       형태다("114와의 대화 메시지 미리 보기 [Web발신]..." 처럼). 발신자
       자리엔 전화번호(010-XXXX-XXXX / +82 10-XXXX-XXXX 둘 다 나옴) 외에
-      "114" 같은 단문 발신코드나 이메일 형태 문자열(웹발신/RCS 등)도
-      섞여 나온다 — 전화번호 패턴만 걸러 받는 게 정확히 맞다.
+      "114" 같은 단문 발신코드나 이메일 형태 문자열(웹발신/RCS 등), 폰
+      주소록에 저장된 연락처 이름("당직실(로드킬)"처럼)도 나온다 — 처음엔
+      전화번호 패턴만 걸러 받았는데, 저장된 연락처 이름으로 뜨는 실제
+      사람과의 문자까지 같이 걸러져서 놓치는 문제가 있었다. 그래서 지금은
+      전화번호 형식 여부와 상관없이 발신자 텍스트를 그대로 받는다 — 다만
+      "phone_number"라는 이름의 필드에 전화번호 아닌 값(이름 등)이 들어갈
+      수 있다는 뜻이니, 이 값으로 발송(send_message)할 때도 그대로 같은
+      문자열을 쓰면(연락처 이름 기준으로 대화를 찾음) 정상 동작한다 —
+      실제 화면에서 알림/대화목록 둘 다 같은 표시 이름을 쓰는 걸 확인했다.
     - 새 메시지 버튼: Button(auto_id="NewMessageButton", title="새
       메시지(Ctrl+N)") — 단축키가 title에 붙어있어 정확히 일치하는
       title 문자열로 찾으면 실패하므로 auto_id로 찾는다.
@@ -94,10 +101,6 @@ _NEW_MESSAGE_BUTTON_CRITERIA = dict(auto_id="NewMessageButton", control_type="Bu
 
 # 대화 목록 행의 접근성 이름 형식: "{발신자}와의 대화 메시지 미리 보기 {미리보기}"
 _ROW_PATTERN = re.compile(r"^(.*?)와의 대화 메시지 미리 보기 (.*)$", re.DOTALL)
-
-# 국내 휴대폰 번호 — "010-XXXX-XXXX"와 "+82 10-XXXX-XXXX"(국제 표기, 실제
-# 화면에 이 형식으로 나오는 대화가 있는 걸 확인함) 둘 다 잡는다.
-_PHONE_RE = re.compile(r"(?:\+82[-\s]?10|010)[-\s]?\d{3,4}[-\s]?\d{4}")
 
 # 홈 화면 "알림" 패널 컨테이너 — 실제 --dump로 확인된 auto_id.
 _NOTIFICATION_LIST_CRITERIA = dict(auto_id="NotificationsListScrollHost")
@@ -328,7 +331,11 @@ def _parse_notification_item(item) -> tuple:
     문제가 있었다 — 매번 가장 마지막(=가장 최근) 줄 하나만 가져오면
     실질적으로 이번에 새로 추가된 문자만 자연스럽게 뽑힌다.
 
-    문자 알림이 아니거나 발신자가 전화번호가 아니면 None.
+    문자 알림이 아니면 None. 발신자는 전화번호 형식이 아니어도(폰
+    주소록에 저장된 연락처 이름 등) 그대로 받는다 — 처음엔 전화번호
+    패턴만 걸러 받았는데, 그러면 저장된 연락처 이름으로 뜨는 실제 사람과의
+    문자까지 같이 놓치는 문제가 있어서 뺐다. sender가 아예 비어있는
+    경우만 걸러낸다.
 
     ⚠ 여기서 나는 예외는 절대 조용히 삼키지 않는다 — 예전에 통째로
     try/except로 감싸서 None을 돌려줬더니, 실제로는 뭔가 실패하고 있는데도
@@ -363,13 +370,11 @@ def _parse_notification_item(item) -> tuple:
 
         if app_name != _NOTIF_SMS_APP_NAME:
             return None  # 문자가 아닌 다른 앱 알림(카카오톡 등)은 건너뜀
-
-        phone_m = _PHONE_RE.search(sender)
-        if not phone_m:
+        if not sender:
             return None
 
         body = body_lines[-1] if body_lines else ""
-        return phone_m.group(0), "", body, msg_time
+        return sender, "", body, msg_time
     except Exception as e:
         print(f"[알림 감시] 항목 하나를 읽다 오류가 나서 건너뜁니다: {e!r}")
         return None
@@ -377,17 +382,18 @@ def _parse_notification_item(item) -> tuple:
 
 def _parse_conversation_item(text: str):
     """대화 목록 행의 접근성 이름("{발신자}와의 대화 메시지 미리 보기
-    {미리보기}")에서 (번호, 이름, 미리보기, 시각)을 뽑는다. 발신자가
-    전화번호가 아니면(예: "114", 이메일 형태) None을 돌려줘 건너뛴다 —
-    비상근무 문자 발송 상대는 실제 민원인 번호여야 하므로."""
+    {미리보기}")에서 (번호, 이름, 미리보기, 시각)을 뽑는다. 발신자는
+    전화번호 형식이 아니어도(폰 주소록에 저장된 연락처 이름 등) 그대로
+    받는다 — watch_notifications()/_parse_notification_item()과 같은
+    이유로, 전화번호 패턴만 걸렀을 때 저장된 연락처 이름으로 뜨는 실제
+    사람과의 문자까지 같이 놓치는 문제가 있었다."""
     m = _ROW_PATTERN.match(text)
     if not m:
         return None
     sender_raw, preview = m.group(1).strip(), m.group(2).strip()
-    phone_m = _PHONE_RE.search(sender_raw)
-    if not phone_m:
+    if not sender_raw:
         return None
-    return phone_m.group(0), "", preview, ""
+    return sender_raw, "", preview, ""
 
 
 if __name__ == "__main__":
