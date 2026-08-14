@@ -109,15 +109,23 @@ def make_reporter(server: str, merge_window: float = 0.0):
 
 
 def _load_recent_seen(server: str, limit: int = 300) -> dict:
-    """서버(app.py)에 이미 저장된 최근 수신 메시지를 {번호: {본문, ...}}
+    """서버(app.py)에 이미 저장된 최근 수신 메시지를 {번호: {본문 줄, ...}}
     형태로 불러온다.
 
-    watch_daemon.py를 껐다 켜면 phone_link.watch_notifications()의 "이미
-    처리한 줄" 기억이 메모리라서 초기화되는데, 그 시점에 알림 카드에
-    예전 내용이 그대로 남아있으면 이미 저장된 걸 "새 줄"로 착각해서 서버로
-    또 올리는 문제가 실제로 있었다. 시작하기 전에 서버가 이미 아는 내용을
-    미리 불러와서 phone_link 쪽 중복 방지 상태를 채워두면, 알림 자체는
+    watch_daemon.py를 껐다 켜면 phone_link.watch_notifications()/
+    watch_new_messages()의 "이미 처리한 내용" 기억이 메모리라서
+    초기화되는데, 그 시점에 알림 카드나 대화 목록에 예전 내용이 그대로
+    남아있으면 이미 저장된 걸 "새 것"으로 착각해서 서버로 또 올리는
+    문제가 실제로 있었다. 시작하기 전에 서버가 이미 아는 내용을 미리
+    불러와서 phone_link 쪽 중복 방지 상태를 채워두면, 알림/대화 목록 자체는
     안 건드리면서도 재시작으로 인한 중복 저장을 막을 수 있다.
+
+    ⚠ 저장된 body를 줄 단위로 쪼개서 넣는다 — --merge-window를 켜서 여러
+    줄이 "A\\nB"처럼 하나로 합쳐져 저장된 경우, phone_link 쪽에서는 여전히
+    알림 카드의 "A", "B" 개별 줄과 비교하기 때문에, 합쳐진 문자열을
+    그대로 넣으면 개별 줄과 하나도 안 맞아서 재시작 시 다시 중복
+    저장되는 문제가 있었다. 병합을 안 쓰는 경우(기본값)엔 한 줄짜리
+    body를 쪼개봐야 자기 자신 하나만 나오므로 동작에 차이가 없다.
 
     서버 연결에 실패하면 빈 상태로 시작한다 — 이 함수가 실패한다고 감시
     자체를 못 하게 막을 이유는 없고, 최악의 경우도 예전과 같은(중복 가능)
@@ -129,7 +137,10 @@ def _load_recent_seen(server: str, limit: int = 300) -> dict:
         for m in r.json().get("messages", []):
             if m.get("direction") != "in":
                 continue
-            seen.setdefault(m["phone_number"], set()).add(m["body"])
+            already_seen = seen.setdefault(m["phone_number"], set())
+            for line in (m["body"] or "").split("\n"):
+                if line:
+                    already_seen.add(line)
     except Exception as e:
         print(f"[경고] 기존 메시지를 불러오지 못해 중복 방지 없이 시작합니다: {e!r}")
     return seen
@@ -156,15 +167,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     reporter = make_reporter(args.server, merge_window=args.merge_window)
+    initial_seen = _load_recent_seen(args.server)
     try:
         if args.source == "notifications":
-            initial_seen = _load_recent_seen(args.server)
             phone_link.watch_notifications(
                 reporter, poll_interval=args.interval, hide_after_start=args.hide,
                 seen_lines_by_sender=initial_seen,
             )
         else:
-            phone_link.watch_new_messages(reporter, poll_interval=args.interval, hide_after_start=args.hide)
+            phone_link.watch_new_messages(
+                reporter, poll_interval=args.interval, hide_after_start=args.hide,
+                seen_bodies_by_phone=initial_seen,
+            )
     except KeyboardInterrupt:
         print("\n[종료] 합치는 중이던 메시지를 마저 저장합니다...")
         reporter.flush_all()

@@ -247,7 +247,7 @@ def restore_window():
     _restore_if_minimized(win)
 
 
-def _reconnect_after_failure(win):
+def _reconnect_after_failure(win, keep_hidden: bool = False):
     """목록을 읽다가 실패했을 때, 다음 주기를 위해 연결을 새로 시도해서
     win 참조를 갱신한다.
 
@@ -260,9 +260,19 @@ def _reconnect_after_failure(win):
     직후에) 이 함수로 참조를 새로 갱신해두면, _connect_main_window()가
     이제 visible_only=False로 찾으므로 창이 최소화된 상태여도 정상적인
     새 참조를 얻을 수 있다. 재연결마저 실패하면 기존 win을 그대로
-    돌려줘서 다음 주기에 다시 시도하게 한다."""
+    돌려줘서 다음 주기에 다시 시도하게 한다.
+
+    keep_hidden=False(기본)면 재연결한 창이 최소화돼 있을 경우 복원한다
+    — 아직 한 번도 성공적으로 목록을 읽어 "예열"하지 못한 상태에서
+    재연결이 최소화된 창에 걸리면, 복원하지 않는 한 이후 폴링도 계속
+    빈 목록만 (에러 없이 조용히) 반환하는 문제가 있었다. keep_hidden=True는
+    이미 한 번 예열에 성공해서 의도적으로 숨겨둔 뒤의 재연결에 쓴다 —
+    이 경우엔 복원하면 안 된다(숨김 목적 자체가 깨짐)."""
     try:
-        return _connect_main_window()
+        new_win = _connect_main_window()
+        if not keep_hidden:
+            _restore_if_minimized(new_win)
+        return new_win
     except Exception as e:
         print(f"[감시] 재연결 실패, 다음 주기에 다시 시도합니다: {e!r}")
         return win
@@ -359,7 +369,7 @@ def send_message(phone_number: str, body: str):
 
 
 def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int = 20,
-                        hide_after_start: bool = False):
+                        hide_after_start: bool = False, seen_bodies_by_phone: dict = None):
     """대화 목록 상위 max_conversations개를 주기적으로 훑어서, 마지막
     메시지 미리보기가 바뀐(=새 메시지가 온) 대화를 발견하면
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
@@ -368,12 +378,25 @@ def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int
     열려있는 대화창의 개별 메시지 ListItem까지 섞여 들어온다(둘 다
     control_type="ListItem"이라 컨테이너로 구분해야 함).
 
+    중복 방지는 watch_notifications()와 같은 방식이다 — 발신자(전화번호
+    또는 연락처 이름)별로 지금까지 콜백으로 넘긴 미리보기 문자열을 집합으로
+    기억해뒀다가, 이미 본 것과 같으면 건너뛴다. 원래는 "행 텍스트 앞 60자"를
+    키로 써서 마지막으로 본 값 하나만 기억했는데, 서로 다른 대화의 미리보기
+    앞부분이 우연히 같으면 잘못 덮어써질 여지가 있었고, watch_daemon.py
+    재시작 시 서버에 이미 저장된 내용으로 미리 채워 넣기도(seed) 어려운
+    구조였다. 지금 방식은 seen_bodies_by_phone을 그대로 넘기면 그 상태로
+    시작하므로, watch_daemon.py의 _load_recent_seen()으로 재시작 중복
+    저장을 막을 수 있다(자세한 이유는 watch_notifications() 참고). 다만
+    같은 문구가 실제로 다른 시점에 두 번 와도 두 번째는 누락될 수 있다는
+    한계도 watch_notifications()와 동일하게 가진다.
+
     hide_after_start=True면 첫 폴링(목록을 한 번 읽어 가상화된 요소를
     "예열"하는 시점)이 끝난 직후 창을 자동으로 최소화한다 — 자세한 이유는
     _restore_if_minimized()/minimize_window() 참고."""
     win = _connect_main_window()
     _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
-    seen = {}  # {대화 식별자: 마지막으로 본 미리보기 텍스트}
+    if seen_bodies_by_phone is None:
+        seen_bodies_by_phone = {}  # {발신자: {이미 콜백으로 넘긴 미리보기, ...}}
     hidden_already = not hide_after_start
 
     print(f"[감시 시작] {poll_interval}초 간격으로 대화 목록을 확인합니다. 종료: Ctrl+C")
@@ -389,21 +412,23 @@ def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int
                     continue
                 if not text:
                     continue
-                key = text[:60]
-                if seen.get(key) == text:
-                    continue  # 마지막으로 본 것과 동일 = 새 메시지 없음
-                seen[key] = text
                 parsed = _parse_conversation_item(text)
-                if parsed:
-                    callback(*parsed)
+                if not parsed:
+                    continue
+                phone, contact_name, preview, msg_time = parsed
+                already_seen = seen_bodies_by_phone.setdefault(phone, set())
+                if not preview or preview in already_seen:
+                    continue
+                already_seen.add(preview)
+                callback(phone, contact_name, preview, msg_time)
             polled_ok = True
         except Exception as e:
             print(f"[감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
-            win = _reconnect_after_failure(win)
+            win = _reconnect_after_failure(win, keep_hidden=hidden_already)
         if polled_ok and not hidden_already:
             minimize_window(win)
             hidden_already = True
-            win = _reconnect_after_failure(win)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
+            win = _reconnect_after_failure(win, keep_hidden=True)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
             print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
         time.sleep(poll_interval)
 
@@ -472,11 +497,11 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30,
             polled_ok = True
         except Exception as e:
             print(f"[알림 감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
-            win = _reconnect_after_failure(win)
+            win = _reconnect_after_failure(win, keep_hidden=hidden_already)
         if polled_ok and not hidden_already:
             minimize_window(win)
             hidden_already = True
-            win = _reconnect_after_failure(win)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
+            win = _reconnect_after_failure(win, keep_hidden=True)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
             print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
         time.sleep(poll_interval)
 
