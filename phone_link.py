@@ -270,19 +270,29 @@ def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int
 
 def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
     """홈 화면 "알림" 패널(NotificationsListScrollHost)을 주기적으로 훑어서
-    새 문자 알림을 발견하면 callback(phone_number, contact_name, body,
-    msg_time)을 호출한다.
+    새 문자 알림을 발견하면 (그 알림 카드에 새로 쌓인 줄마다 한 번씩)
+    callback(phone_number, contact_name, body, msg_time)을 호출한다.
 
     watch_new_messages()(대화 목록 CVSListView 기반)와 달리 이 패널은
     Wi-Fi 없이 블루투스만으로도 채워지는 걸 실제로 확인했다 — 행정망처럼
     PC에 Wi-Fi를 못 붙이는 환경에서는 이쪽을 써야 새 문자를 감지할 수 있다.
     대신 본문이 미리보기라 원문이 길면 잘려있을 수 있다는 한계가 있다.
 
+    같은 상대와 문자를 주고받을수록 알림 카드 하나가 "A" -> "A B" ->
+    "A B C"처럼 계속 누적되는 걸 실제로 확인했다(줄마다 별도 Text
+    컨트롤로 쌓임). 그래서 "마지막 줄만" 보는 대신, 발신자별로 지금까지
+    본 줄 내용을 전부 기억해뒀다가 매 폴링마다 "아직 못 본 줄"만 전부
+    콜백으로 넘긴다 — 한 폴링 주기 사이에 같은 상대에게서 문자가 여러 개
+    와도(카드에 여러 줄이 한꺼번에 새로 쌓여도) 폴링 간격과 무관하게 전부
+    잡힌다. 내용 기준으로 비교하는 이유는, 혹시 카드가 초기화되거나(예:
+    "모든 알림 지우기") 오래된 줄이 밀려나가도 "줄 개수"만으로 비교하는
+    것보다 안전하기 때문이다 — 다만 완전히 똑같은 문구를 두 번 연달아
+    보내는 극히 드문 경우는 두 번째가 누락될 수 있다.
+
     AppNameTextBlock이 "메시지"인 항목만 문자로 취급하고, 카카오톡 등 다른
-    앱 알림은 걸러서 무시한다. 발신자가 전화번호가 아니면(예: "114")
-    watch_new_messages()와 동일한 이유로 건너뛴다."""
+    앱 알림은 걸러서 무시한다."""
     win = _connect_main_window()
-    seen = set()
+    seen_lines_by_sender = {}  # {발신자: {이미 콜백으로 넘긴 본문 줄, ...}}
 
     print(f"[알림 감시 시작] {poll_interval}초 간격으로 알림 패널을 확인합니다. 종료: Ctrl+C")
     while True:
@@ -293,12 +303,13 @@ def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30):
                 parsed = _parse_notification_item(item)
                 if not parsed:
                     continue
-                phone, contact_name, body, msg_time = parsed
-                key = f"{phone}|{msg_time}|{body[:40]}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                callback(phone, contact_name, body, msg_time)
+                phone, contact_name, body_lines, msg_time = parsed
+                already_seen = seen_lines_by_sender.setdefault(phone, set())
+                for line in body_lines:
+                    if not line or line in already_seen:
+                        continue
+                    already_seen.add(line)
+                    callback(phone, contact_name, line, msg_time)
         except Exception as e:
             print(f"[알림 감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
         time.sleep(poll_interval)
@@ -314,7 +325,10 @@ _NOTIF_BUTTON_LABELS = {"통화", "읽음으로 표시", "보내기", "이모지
 
 
 def _parse_notification_item(item) -> tuple:
-    """알림 패널의 ListItem 하나에서 (번호, "", 최신 본문 한 줄, 시각)을 뽑는다.
+    """알림 패널의 ListItem 하나에서 (번호, "", 본문 줄 목록, 시각)을 뽑는다.
+    본문이 하나의 문자열이 아니라 "목록"인 이유는 watch_notifications()가
+    호출자 쪽에서 어떤 줄이 이미 처리됐는지 판단해야 하기 때문이다 —
+    자세한 이유는 watch_notifications()의 설명 참고.
 
     ⚠ item.child_window(...)를 쓰지 않는다 — 실제로 돌려봤더니
     "'ListItemWrapper' object has no attribute 'child_window'" 에러가 났다.
@@ -323,13 +337,6 @@ def _parse_notification_item(item) -> tuple:
     되는 걸 이미 상위 호출(win.child_window(...).descendants(...))에서
     확인했으므로, 이 함수도 descendants()로 한 번만 훑어서 auto_id로
     분류하는 방식으로 통일한다.
-
-    본문은 "마지막 줄 하나만" 가져온다 — 같은 상대와 문자를 주고받을수록
-    알림 카드 하나가 "A" -> "A B" -> "A B C"처럼 계속 누적되는 걸 실제로
-    확인했다(각 줄이 별도 Text 컨트롤로 쌓임). 전부 이어붙이면 감시
-    주기마다 "새 본문"으로 보여서 DB에 점점 길어지는 내용이 중복 저장되는
-    문제가 있었다 — 매번 가장 마지막(=가장 최근) 줄 하나만 가져오면
-    실질적으로 이번에 새로 추가된 문자만 자연스럽게 뽑힌다.
 
     문자 알림이 아니면 None. 발신자는 전화번호 형식이 아니어도(폰
     주소록에 저장된 연락처 이름 등) 그대로 받는다 — 처음엔 전화번호
@@ -373,8 +380,7 @@ def _parse_notification_item(item) -> tuple:
         if not sender:
             return None
 
-        body = body_lines[-1] if body_lines else ""
-        return sender, "", body, msg_time
+        return sender, "", body_lines, msg_time
     except Exception as e:
         print(f"[알림 감시] 항목 하나를 읽다 오류가 나서 건너뜁니다: {e!r}")
         return None
