@@ -199,6 +199,13 @@ def dump_control_tree(depth: int = None):
     win.print_control_identifiers(depth=depth)
 
 
+def _is_minimized(win) -> bool:
+    """창이 지금 최소화된 상태인지 확인한다."""
+    import win32gui
+
+    return bool(win32gui.IsIconic(win.handle))
+
+
 def _restore_if_minimized(win):
     """창이 최소화된 상태면 원래 크기로 되돌린다.
 
@@ -211,9 +218,8 @@ def _restore_if_minimized(win):
     import win32con
     import win32gui
 
-    hwnd = win.handle
-    if win32gui.IsIconic(hwnd):
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    if _is_minimized(win):
+        win32gui.ShowWindow(win.handle, win32con.SW_RESTORE)
 
 
 def minimize_window(win=None):
@@ -316,26 +322,40 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
 
 def send_message(phone_number: str, body: str):
     """phone_number로 body를 발송한다. 실패하면 예외를 던진다 — 호출하는
-    쪽(app.py의 /api/send)에서 그대로 502로 응답한다."""
+    쪽(app.py의 /api/send)에서 그대로 502로 응답한다.
+
+    발송은 click_input()/type_keys()로 실제 마우스/키보드 입력을 흉내내는
+    방식이라, 감시(읽기)와 달리 창이 화면에 실제로 보이는 상태여야 한다
+    — 최소화된 채로는 안 되는 걸 실제로 확인했다. 그래서 창이 지금
+    최소화돼 있으면 발송 직전에 복원하고, 발송이 끝나면(성공하든
+    실패하든) 원래 최소화돼 있던 상태 그대로 다시 최소화해서, 대시보드에서
+    발송 버튼 한 번 눌렀다고 숨겨둔 창이 계속 화면에 남아있지 않게 한다."""
     phone_number = phone_number.strip()
     body = body.strip()
     if not phone_number or not body:
         raise ValueError("phone_number와 body는 비어있을 수 없습니다")
 
     win = _connect_main_window()
-    win.set_focus()
-    _open_conversation(win, phone_number)
+    was_minimized = _is_minimized(win)
+    if was_minimized:
+        _restore_if_minimized(win)
+    try:
+        win.set_focus()
+        _open_conversation(win, phone_number)
 
-    compose = win.child_window(**_COMPOSE_BOX_CRITERIA)
-    compose.wait("exists enabled visible", timeout=10)
-    compose.click_input()
-    compose.type_keys(body, with_spaces=True, with_tabs=False, with_newlines=False)
-    time.sleep(0.3)
+        compose = win.child_window(**_COMPOSE_BOX_CRITERIA)
+        compose.wait("exists enabled visible", timeout=10)
+        compose.click_input()
+        compose.type_keys(body, with_spaces=True, with_tabs=False, with_newlines=False)
+        time.sleep(0.3)
 
-    send_btn = win.child_window(**_SEND_BUTTON_CRITERIA)
-    send_btn.wait("exists enabled visible", timeout=10)
-    send_btn.click_input()
-    time.sleep(0.5)
+        send_btn = win.child_window(**_SEND_BUTTON_CRITERIA)
+        send_btn.wait("exists enabled visible", timeout=10)
+        send_btn.click_input()
+        time.sleep(0.5)
+    finally:
+        if was_minimized:
+            minimize_window(win)
 
 
 def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int = 20,
