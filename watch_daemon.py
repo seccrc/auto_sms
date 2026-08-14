@@ -5,8 +5,8 @@
 
 사용법:
     python app.py                         (다른 터미널/서비스로 먼저 띄워둠)
-    python watch_daemon.py                (기본: http://127.0.0.1:5060, 10초 간격)
-    python watch_daemon.py --server http://127.0.0.1:5060 --interval 15
+    python watch_daemon.py                (기본: http://127.0.0.1:8060, 10초 간격)
+    python watch_daemon.py --server http://127.0.0.1:8060 --interval 15
 """
 import argparse
 
@@ -37,7 +37,7 @@ def make_reporter(server: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--server", default="http://127.0.0.1:5060")
+    parser.add_argument("--server", default="http://127.0.0.1:8060")
     parser.add_argument("--interval", type=int, default=10, help="감시 주기(초)")
     args = parser.parse_args()
 

@@ -4,7 +4,7 @@ auto_sms — 휴대폰과 연결(Phone Link) 앱을 조작해서
   2) 상용문구를 골라 원클릭으로 발송
 하는 로컬 대시보드.
 
-실행: python app.py  (기본 포트 5060)
+실행: python app.py  (기본 포트 8060)
 watch_daemon.py와 phone_link.py는 pywinauto(Windows 전용)를 쓰므로 이 서버
 자체는 아무 OS에서나 뜨지만, 실제 발송(/api/send)과 감시 데몬은 휴대폰
 연결 앱이 설치된 윈도우 PC에서만 동작한다.
@@ -178,4 +178,4 @@ def api_send():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5060, debug=False)
+    app.run(host="0.0.0.0", port=8060, debug=False)
