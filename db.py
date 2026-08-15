@@ -24,7 +24,8 @@ def init_db():
             direction     TEXT NOT NULL CHECK(direction IN ('in','out')),  -- in=수신, out=발신
             msg_time      TEXT,                    -- 문자 자체의 시각(휴대폰 연결 화면에 찍힌 시각)
             dedup_key     TEXT UNIQUE,              -- 워처가 같은 메시지를 중복 저장하지 않게 막는 키
-            created_at    TEXT DEFAULT (datetime('now', 'localtime'))
+            created_at    TEXT DEFAULT (datetime('now', 'localtime')),
+            status        TEXT DEFAULT ''            -- 처리상태
         );
         CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(phone_number);
         CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
@@ -37,6 +38,9 @@ def init_db():
             created_at  TEXT DEFAULT (datetime('now', 'localtime'))
         );
     """)
+    cols = [row["name"] for row in conn.execute("PRAGMA table_info(messages)")]
+    if "status" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT ''")
     conn.commit()
     conn.close()
 

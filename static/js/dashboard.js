@@ -1,6 +1,17 @@
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 let templatesCache = [];
+const STATUS_OPTIONS = ['', '처리중', '처리완료'];
+const STATUS_LABELS = { '': '미처리', '처리중': '처리중', '처리완료': '처리완료' };
+
+async function updateMessageStatus(id, status) {
+    try {
+        await fetch(`/api/messages/${id}/status`, {
+            method: 'PATCH', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({status})
+        });
+    } catch (e) {}
+}
 
 // ── 최근 대화 상대 (수신자 드롭다운) ──
 async function loadContacts() {
@@ -133,7 +144,7 @@ async function loadMessages() {
         const d = await r.json();
         const msgs = d.messages || [];
         if (!msgs.length) {
-            body.innerHTML = '<tr><td colspan="5" class="empty">아직 메시지가 없습니다</td></tr>';
+            body.innerHTML = '<tr><td colspan="6" class="empty">아직 메시지가 없습니다</td></tr>';
             return;
         }
         body.innerHTML = msgs.map(m => `
@@ -143,9 +154,14 @@ async function loadMessages() {
                 <td>${esc(m.contact_name || '')}</td>
                 <td class="msg-body">${esc(m.body)}</td>
                 <td>${esc(m.msg_time || m.created_at || '')}</td>
+                <td>
+                    <select onchange="updateMessageStatus(${m.id}, this.value)">
+                        ${STATUS_OPTIONS.map(s => `<option value="${esc(s)}" ${s === (m.status || '') ? 'selected' : ''}>${esc(STATUS_LABELS[s])}</option>`).join('')}
+                    </select>
+                </td>
             </tr>`).join('');
     } catch (e) {
-        body.innerHTML = '<tr><td colspan="5" class="empty">불러오기 실패</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="empty">불러오기 실패</td></tr>';
     }
 }
 

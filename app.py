@@ -70,6 +70,17 @@ def api_save_message():
     return jsonify({"ok": True, "inserted": inserted})
 
 
+@app.route("/api/messages/<int:mid>/status", methods=["PATCH"])
+def api_update_message_status(mid):
+    data = request.get_json(force=True, silent=True) or {}
+    status = (data.get("status") or "").strip()
+    conn = get_db()
+    conn.execute("UPDATE messages SET status=? WHERE id=?", (status, mid))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/contacts", methods=["GET"])
 def api_list_contacts():
     """상용문구 발송 대상 드롭다운용 — 번호별로 가장 최근 메시지 시각/이름을
