@@ -122,7 +122,7 @@ def _is_business_hours(now: datetime = None) -> bool:
     return BUSINESS_START_HOUR <= now.hour < BUSINESS_END_HOUR
 
 
-def _dispatch_auto_reply(phone_number: str):
+def _dispatch_auto_reply(phone_number: str, complaint_id: int):
     """_maybe_send_auto_reply()를 별도 스레드에서 실행한다.
 
     phone_link.send_message()는 창을 찾고 열고 타이핑하고 보내기 버튼을
@@ -137,6 +137,15 @@ def _dispatch_auto_reply(phone_number: str):
     것처럼 보이는 문제로 이어진다. 그래서 자동발송은 응답을 기다리지
     않고 별도 스레드로 넘겨서, 수신 문자 저장 응답은 항상 즉시 돌아가고
     서버도 그 사이 다른 요청을 계속 받을 수 있게 한다.
+
+    complaint_id는 이 자동발송을 유발한 "그 민원"의 id다 — 이게 몇 초
+    걸리는 사이 같은 번호로 또 다른(별개) 민원이 들어오면, 그 새 민원이
+    _build_threads()의 "이 번호의 현재 열린 스레드" 포인터를 앞질러
+    바꿔버린다. complaint_id 없이 phone_number만으로 답신을 저장하면
+    _build_threads()가 그 시점에 "가장 최근" 스레드에 무조건 붙여버려서,
+    먼저 들어온 민원에 대한 자동발송이 나중에 들어온 민원 밑으로 잘못
+    붙는 사고로 이어진다(실제로 확인됨 — api_send()의 같은 문제를
+    complaint_id로 이미 고쳐뒀던 것과 동일한 원인).
 
     ⚠ 이 스레드는 Flask 요청 스레드가 아니라 새로 뜨는 스레드라, 그
     안에서 pywinauto(UI Automation)를 처음 쓰는 거면 윈도우에서 그
@@ -153,7 +162,7 @@ def _dispatch_auto_reply(phone_number: str):
         except Exception:
             pass
         try:
-            _maybe_send_auto_reply(phone_number)
+            _maybe_send_auto_reply(phone_number, complaint_id)
         except Exception as e:
             print(f"[업무외 자동발송] 예상 못한 오류 ({phone_number}): {e!r}")
         finally:
@@ -164,7 +173,7 @@ def _dispatch_auto_reply(phone_number: str):
     threading.Thread(target=run, daemon=True).start()
 
 
-def _maybe_send_auto_reply(phone_number: str):
+def _maybe_send_auto_reply(phone_number: str, complaint_id: int):
     """업무외 시간에 새 민원이 들어왔고 "업무외 자동발송"이 켜져 있으면,
     화면에서 골라둔 상용문구를 그 번호로 자동 발송한다. 업무시간 안이면
     직원이 직접 확인/발송하는 게 기본이라 아무것도 하지 않는다."""
@@ -191,6 +200,17 @@ def _maybe_send_auto_reply(phone_number: str):
         if recent_out:
             return
         body = template["body"]
+        # api_send()와 같은 규칙 — 이 민원이 아직 한 번도 병합/앵커된 적
+        # 없으면 자기 자신의 id를 thread_id로 삼아 스스로를 앵커로 만든다.
+        # 이렇게 명시적으로 묶어두면, 발송이 진행되는 몇 초 사이 같은
+        # 번호로 다른 민원이 새로 들어와도(_build_threads()의 "현재 열린
+        # 스레드" 포인터가 그쪽으로 옮겨가도) 이 자동발송은 항상 자신을
+        # 유발한 민원 밑에 정확히 붙는다.
+        row = conn.execute("SELECT thread_id FROM messages WHERE id=?", (complaint_id,)).fetchone()
+        thread_id = (row["thread_id"] or complaint_id) if row else None
+        if row and row["thread_id"] is None:
+            conn.execute("UPDATE messages SET thread_id=? WHERE id=?", (thread_id, complaint_id))
+            conn.commit()
     finally:
         conn.close()
 
@@ -204,8 +224,9 @@ def _maybe_send_auto_reply(phone_number: str):
     # 쪽으로 실패하기 쉽고, 그 경우는 원인도 알기 어렵다.
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at, auto_sent) VALUES (?,?,'out',NULL,?,1)",
-        (phone_number, body, now_local()),
+        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at, auto_sent, thread_id) "
+        "VALUES (?,?,'out',NULL,?,1,?)",
+        (phone_number, body, now_local(), thread_id),
     )
     row_id = cur.lastrowid
     conn.commit()
@@ -262,14 +283,17 @@ def api_save_message():
         (phone_number, contact_name, body, msg_time, dedup_key, now_local()),
     )
     inserted = cur.rowcount > 0
+    complaint_id = cur.lastrowid
     conn.commit()
     conn.close()
     if inserted:
         # 별도 스레드로 넘겨서 자동발송(느릴 수 있는 UI 자동화)이 끝나길
         # 기다리지 않고 바로 응답한다 — 이유는 _dispatch_auto_reply() 설명
         # 참고. 스레드 안에서 나는 예외는 거기서 이미 잡아서 로그만 남기므로
-        # 여기서 또 감쌀 필요는 없다.
-        _dispatch_auto_reply(phone_number)
+        # 여기서 또 감쌀 필요는 없다. complaint_id를 같이 넘기는 이유는
+        # _dispatch_auto_reply() 설명 참고 — 이 민원에 명시적으로 스레드를
+        # 묶기 위해서다.
+        _dispatch_auto_reply(phone_number, complaint_id)
     return jsonify({"ok": True, "inserted": inserted})
 
 
