@@ -9,7 +9,6 @@ watch_daemon.py와 phone_link.py는 pywinauto(Windows 전용)를 쓰므로 이 �
 자체는 아무 OS에서나 뜨지만, 실제 발송(/api/send)과 감시 데몬은 휴대폰
 연결 앱이 설치된 윈도우 PC에서만 동작한다.
 """
-import threading
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
@@ -109,16 +108,6 @@ BUSINESS_END_HOUR = 18
 # 안에 이미 발신 문자가 나갔으면 자동발송을 건너뛴다.
 AUTO_REPLY_QUIET_MINUTES = 5
 
-# 문자가 연이어 올 수 있어서(예: 길어서 나눠 보냄, 급한 마음에 짧게 여러
-# 통), 새 수신 문자가 들어올 때마다 바로바로 답신하지 않고 이 시간(초)
-# 동안 그 번호에서 더 이상 문자가 안 오면 그때 답신한다 — 전형적인
-# 디바운스: 같은 번호에서 그 사이에 또 문자가 오면 기존에 걸어둔 대기를
-# 취소하고 이 시간만큼 다시 기다린다. _schedule_auto_reply() 참고.
-AUTO_REPLY_DEBOUNCE_SECONDS = 60
-
-_auto_reply_timers = {}  # phone_number -> threading.Timer (대기 중인 것만)
-_auto_reply_timers_lock = threading.Lock()
-
 
 def _is_business_hours(now: datetime = None) -> bool:
     now = now or datetime.now()
@@ -127,62 +116,10 @@ def _is_business_hours(now: datetime = None) -> bool:
     return BUSINESS_START_HOUR <= now.hour < BUSINESS_END_HOUR
 
 
-def _schedule_auto_reply(phone_number: str):
-    """새 수신 문자가 저장될 때마다 호출된다. 바로 답신하는 대신, 그 번호로
-    AUTO_REPLY_DEBOUNCE_SECONDS 동안 더 이상 문자가 안 오면 그때 실제
-    답신(_fire_auto_reply)을 실행하도록 타이머를 건다. 같은 번호에서 그
-    사이에 또 문자가 오면(이 함수가 다시 호출되면) 기존 타이머를 취소하고
-    새로 그 시간만큼 다시 기다린다 — 그래서 연달아 오는 문자들 중
-    마지막 문자를 기준으로 딱 한 번만 답신하게 된다."""
-    with _auto_reply_timers_lock:
-        existing = _auto_reply_timers.get(phone_number)
-        if existing:
-            existing.cancel()
-        timer = threading.Timer(AUTO_REPLY_DEBOUNCE_SECONDS, _fire_auto_reply, args=(phone_number,))
-        timer.daemon = True
-        _auto_reply_timers[phone_number] = timer
-        timer.start()
-
-
-def _fire_auto_reply(phone_number: str):
-    """_schedule_auto_reply()가 건 타이머가 만료되면(=그 번호가
-    AUTO_REPLY_DEBOUNCE_SECONDS 동안 조용하면) 이 스레드에서 실제로
-    _maybe_send_auto_reply()를 실행한다.
-
-    ⚠ 이건 Flask 요청을 처리하던 스레드가 아니라 완전히 새로 뜬
-    타이머 스레드다 — pywinauto(UI Automation)를 그 스레드에서 처음
-    쓰는 거라, 윈도우에서는 그 스레드용으로 COM을 따로 초기화해줘야
-    UI Automation 호출이 실패하지 않는다(스레드마다 필요, 메인
-    스레드에서 한 번 초기화됐다고 다른 스레드까지 적용되는 게 아님).
-    pythoncom도 윈도우 전용이라 phone_link처럼 지연 import하고, 실패하면
-    (리눅스 등) 그냥 건너뛴다."""
-    with _auto_reply_timers_lock:
-        _auto_reply_timers.pop(phone_number, None)
-
-    com_initialized = False
-    try:
-        import pythoncom
-        pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
-        com_initialized = True
-    except Exception:
-        pass
-    try:
-        _maybe_send_auto_reply(phone_number)
-    except Exception as e:
-        print(f"[업무외 자동발송] 예상 못한 오류 ({phone_number}): {e!r}")
-    finally:
-        if com_initialized:
-            import pythoncom
-            pythoncom.CoUninitialize()
-
-
 def _maybe_send_auto_reply(phone_number: str):
-    """업무외 시간에 그 번호가 AUTO_REPLY_DEBOUNCE_SECONDS 동안 조용했고
-    "업무외 자동발송"이 켜져 있으면, 화면에서 골라둔 상용문구를 그 번호로
-    자동 발송한다(_fire_auto_reply()가 대기가 끝난 뒤 호출). 업무시간
-    안이면 직원이 직접 확인/발송하는 게 기본이라 아무것도 하지 않는다 —
-    이 판단은 대기가 끝난 실제 발송 시점 기준이라, 대기 도중 업무시간이
-    시작돼 버리면 자동으로 안 나간다(의도된 동작)."""
+    """업무외 시간에 새 민원이 들어왔고 "업무외 자동발송"이 켜져 있으면,
+    화면에서 골라둔 상용문구를 그 번호로 자동 발송한다. 업무시간 안이면
+    직원이 직접 확인/발송하는 게 기본이라 아무것도 하지 않는다."""
     if _is_business_hours():
         return
 
@@ -281,7 +218,7 @@ def api_save_message():
     conn.close()
     if inserted:
         try:
-            _schedule_auto_reply(phone_number)
+            _maybe_send_auto_reply(phone_number)
         except Exception as e:
             # 자동발송 쪽에서 뭐가 터지든, 이미 저장된 수신 문자 응답까지
             # 같이 실패해서 워처가 "저장 실패"로 오인하면 안 된다.
