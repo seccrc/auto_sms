@@ -271,6 +271,36 @@ async function mergeSelectedThreads() {
     }
 }
 
+// 화면에 보이는 그대로(민원 + 그 밑에 달린 답신들 전부)를 지운다 —
+// 되돌릴 수 없는 작업이라 삭제 전에 반드시 한 번 더 확인창을 띄운다.
+async function deleteSelectedThreads() {
+    const ids = Array.from(selectedThreadIds);
+    if (ids.length === 0) return;
+    if (!confirm(`선택한 ${ids.length}개 민원을 삭제할까요? 답신 기록도 함께 삭제되며 되돌릴 수 없습니다.`)) return;
+    const allIds = [];
+    lastThreads.forEach(t => {
+        if (selectedThreadIds.has(t.complaint.id)) {
+            allIds.push(t.complaint.id);
+            t.replies.forEach(r => allIds.push(r.id));
+        }
+    });
+    try {
+        const r = await fetch('/api/messages/delete', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ids: allIds})
+        });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+            selectedThreadIds.clear();
+            loadMessages();
+        } else {
+            alert('삭제 실패: ' + (d.error || '알 수 없는 오류'));
+        }
+    } catch (e) {
+        alert('오류: ' + e.message);
+    }
+}
+
 function onReplyTemplateChange(selectEl) {
     const ta = selectEl.closest('.send-box').querySelector('textarea');
     const t = templatesCache.find(t => String(t.id) === selectEl.value);

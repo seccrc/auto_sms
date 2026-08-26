@@ -335,6 +335,31 @@ def api_update_message(msg_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/messages/delete", methods=["POST"])
+def api_delete_messages():
+    """체크박스로 고른 민원 스레드를 삭제한다. 화면(dashboard.js)이 선택된
+    민원의 id뿐 아니라 그 밑에 달린 답신들의 id까지 전부 모아서 보내므로,
+    여기서는 받은 id들을 그대로 지우기만 한다 — 되돌릴 수 없는 작업이라
+    확인창은 프론트에서 이미 한 번 거쳤다."""
+    data = request.get_json(force=True, silent=True) or {}
+    raw_ids = data.get("ids") or []
+    ids = []
+    for i in raw_ids:
+        try:
+            ids.append(int(i))
+        except (TypeError, ValueError):
+            pass
+    if not ids:
+        return jsonify({"error": "ids가 필요합니다"}), 400
+    conn = get_db()
+    placeholders = ",".join("?" * len(ids))
+    cur = conn.execute(f"DELETE FROM messages WHERE id IN ({placeholders})", ids)
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "deleted": deleted})
+
+
 @app.route("/api/threads/merge", methods=["POST"])
 def api_merge_threads():
     """같은 민원인이 시간차를 두고 다시 보내서 스레드가 갈라진 경우를 위한
