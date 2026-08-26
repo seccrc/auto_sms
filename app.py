@@ -9,6 +9,7 @@ watch_daemon.py와 phone_link.py는 pywinauto(Windows 전용)를 쓰므로 이 �
 자체는 아무 OS에서나 뜨지만, 실제 발송(/api/send)과 감시 데몬은 휴대폰
 연결 앱이 설치된 윈도우 PC에서만 동작한다.
 """
+import threading
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
@@ -116,6 +117,48 @@ def _is_business_hours(now: datetime = None) -> bool:
     return BUSINESS_START_HOUR <= now.hour < BUSINESS_END_HOUR
 
 
+def _dispatch_auto_reply(phone_number: str):
+    """_maybe_send_auto_reply()를 별도 스레드에서 실행한다.
+
+    phone_link.send_message()는 창을 찾고 열고 타이핑하고 보내기 버튼을
+    누르는 여러 단계를 거치는 실제 UI 자동화라 몇 초에서 길게는 그 이상
+    걸릴 수 있다. 이 서버(app.run())는 threaded=False라 요청을 한 번에
+    하나씩만 처리하는데, 이 호출을 요청 처리 스레드에서 그대로 기다리면
+    — (1) watch_daemon.py 쪽 요청이 10초 타임아웃에 걸려 "전송 실패"로
+    잘못 보이고(실제로는 수신 문자 저장 자체는 이미 끝난 뒤라 성공한
+    경우가 많음), (2) 더 심각하게는 그 사이 들어오는 다른 요청들(새 수신
+    문자 저장, 대시보드 조회 등)이 전부 그 뒤에 밀려서, 자동발송이 오래
+    걸리거나 멈춰버리면 그동안 새 문자가 실제로 DB에 저장되지 않는
+    것처럼 보이는 문제로 이어진다. 그래서 자동발송은 응답을 기다리지
+    않고 별도 스레드로 넘겨서, 수신 문자 저장 응답은 항상 즉시 돌아가고
+    서버도 그 사이 다른 요청을 계속 받을 수 있게 한다.
+
+    ⚠ 이 스레드는 Flask 요청 스레드가 아니라 새로 뜨는 스레드라, 그
+    안에서 pywinauto(UI Automation)를 처음 쓰는 거면 윈도우에서 그
+    스레드용으로 COM을 따로 초기화해줘야 한다(스레드마다 필요, 메인
+    스레드에서 됐다고 다른 스레드까지 적용되는 게 아님). pythoncom도
+    윈도우 전용이라 phone_link처럼 지연 import하고, 실패하면(리눅스 등)
+    그냥 건너뛴다."""
+    def run():
+        com_initialized = False
+        try:
+            import pythoncom
+            pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
+            com_initialized = True
+        except Exception:
+            pass
+        try:
+            _maybe_send_auto_reply(phone_number)
+        except Exception as e:
+            print(f"[업무외 자동발송] 예상 못한 오류 ({phone_number}): {e!r}")
+        finally:
+            if com_initialized:
+                import pythoncom
+                pythoncom.CoUninitialize()
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _maybe_send_auto_reply(phone_number: str):
     """업무외 시간에 새 민원이 들어왔고 "업무외 자동발송"이 켜져 있으면,
     화면에서 골라둔 상용문구를 그 번호로 자동 발송한다. 업무시간 안이면
@@ -217,12 +260,11 @@ def api_save_message():
     conn.commit()
     conn.close()
     if inserted:
-        try:
-            _maybe_send_auto_reply(phone_number)
-        except Exception as e:
-            # 자동발송 쪽에서 뭐가 터지든, 이미 저장된 수신 문자 응답까지
-            # 같이 실패해서 워처가 "저장 실패"로 오인하면 안 된다.
-            print(f"[업무외 자동발송] 예상 못한 오류 ({phone_number}): {e!r}")
+        # 별도 스레드로 넘겨서 자동발송(느릴 수 있는 UI 자동화)이 끝나길
+        # 기다리지 않고 바로 응답한다 — 이유는 _dispatch_auto_reply() 설명
+        # 참고. 스레드 안에서 나는 예외는 거기서 이미 잡아서 로그만 남기므로
+        # 여기서 또 감쌀 필요는 없다.
+        _dispatch_auto_reply(phone_number)
     return jsonify({"ok": True, "inserted": inserted})
 
 
@@ -417,4 +459,9 @@ if __name__ == "__main__":
     # 켜서 얻는 부작용(인터랙티브 디버거)은 host="0.0.0.0"으로 네트워크에
     # 열려있는 이 서버에서는 원격 코드실행 위험이라 debug는 그대로 꺼둔 채
     # use_reloader만 켠다.
-    app.run(host="0.0.0.0", port=8060, debug=False, use_reloader=True)
+    # threaded=True: 기본(False)이면 요청을 한 번에 하나씩만 처리해서, 느린
+    # 요청 하나가 그 뒤의 다른 요청(새 수신 문자 저장, 대시보드 조회 등)을
+    # 전부 막아버린다 — 자동발송은 별도 스레드로 넘겨서 이미 웬만큼
+    # 피했지만(_dispatch_auto_reply() 참고), 여러 요청이 동시에 몰리는
+    # 상황 자체를 근본적으로 막기 위해 이중으로 켜둔다.
+    app.run(host="0.0.0.0", port=8060, debug=False, use_reloader=True, threaded=True)
