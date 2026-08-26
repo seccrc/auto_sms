@@ -134,6 +134,7 @@ async function saveAutoReplySettings() {
 let lastThreads = [];
 let editingRowId = null;  // 연필 아이콘으로 지금 수정 모드인 민원(수신 문자)의 id (한 번에 하나만)
 let selectedThreadIds = new Set();  // 체크박스로 골라서 병합 대상이 된 스레드(민원)의 id들
+let currentPageThreadIds = [];  // 전체선택 체크박스가 대상으로 삼는, 현재 페이지에 보이는 스레드 id들
 const THREADS_PER_PAGE = 10;
 let currentPage = 1;  // 15초 자동 갱신으로 목록이 다시 그려져도 보던 페이지를 유지한다
 
@@ -192,6 +193,24 @@ function toggleSendBox(idx) {
 function toggleThreadSelect(id, checked) {
     if (checked) selectedThreadIds.add(id); else selectedThreadIds.delete(id);
     updateMergeBar();
+    syncSelectAllCheckbox();
+}
+
+// 헤더의 전체선택 체크박스 — 현재 페이지에 보이는 스레드만 대상으로 한다.
+function toggleSelectAllThreads(checked) {
+    currentPageThreadIds.forEach(id => {
+        if (checked) selectedThreadIds.add(id); else selectedThreadIds.delete(id);
+    });
+    renderThreads();
+}
+
+function syncSelectAllCheckbox() {
+    const box = document.getElementById('selectAllCheckbox');
+    if (!box) return;
+    const total = currentPageThreadIds.length;
+    const selected = currentPageThreadIds.filter(id => selectedThreadIds.has(id)).length;
+    box.checked = total > 0 && selected === total;
+    box.indeterminate = selected > 0 && selected < total;
 }
 
 function clearThreadSelection() {
@@ -286,13 +305,16 @@ function renderThreads() {
     updateHeadStats();
     if (!lastThreads.length) {
         listEl.innerHTML = '<div class="empty">아직 메시지가 없습니다</div>';
+        currentPageThreadIds = [];
         updateMergeBar();
+        syncSelectAllCheckbox();
         return;
     }
     const totalPages = Math.max(1, Math.ceil(lastThreads.length / THREADS_PER_PAGE));
     currentPage = Math.min(Math.max(1, currentPage), totalPages);
     const pageStart = (currentPage - 1) * THREADS_PER_PAGE;
     const pageThreads = lastThreads.slice(pageStart, pageStart + THREADS_PER_PAGE);
+    currentPageThreadIds = pageThreads.map(t => t.complaint.id);
     const tplOptions = templatesCache.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('');
     listEl.innerHTML = pageThreads.map((t, idx) => {
         const m = t.complaint;
@@ -314,10 +336,10 @@ function renderThreads() {
                 ? `<select class="cell-input" data-id="${m.id}" data-field="manual_input" onchange="saveMessageCell(this)">
                        ${MANUAL_INPUT_OPTIONS.map(o => `<option value="${esc(o)}" ${o === (m.manual_input || '') ? 'selected' : ''}>${o === '' ? '-' : esc(o)}</option>`).join('')}
                    </select>`
-                : esc(m.manual_input || '-');
+                : (m.manual_input ? `<span class="tag">${esc(m.manual_input)}</span>` : `<span class="tag tag-empty">-</span>`);
             receiptHtml = editing
                 ? `<input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" placeholder="접수번호" onblur="saveMessageCell(this)">`
-                : esc(m.receipt_no || '-');
+                : (m.receipt_no ? `<span class="tag">${esc(m.receipt_no)}</span>` : `<span class="tag tag-empty">-</span>`);
             editBtnHtml = `<button class="icon-btn" onclick="toggleEditRow(${m.id})" title="${editing ? '수정 완료' : '수정'}">${editing ? '✓' : '✏️'}</button>`;
         }
 
@@ -357,6 +379,7 @@ function renderThreads() {
             </div>`;
     }).join('') + renderPagination(totalPages);
     updateMergeBar();
+    syncSelectAllCheckbox();
 }
 
 // 두 칸(입력/접수번호) 중 하나에서 포커스가 빠지면, 그 민원의 두 값을
