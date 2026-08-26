@@ -26,7 +26,6 @@
 import argparse
 import threading
 import time
-from datetime import datetime
 
 import requests
 
@@ -112,11 +111,13 @@ def make_reporter(server: str, merge_window: float = 0.0):
 
 def _load_recent_seen(server: str, limit: int = 300, retries: int = 5, retry_delay: float = 2.0) -> dict:
     """서버(app.py)에 이미 저장된 최근 수신 메시지를
-    {번호: {본문 줄: 저장된 시각(epoch), ...}} 형태로 불러온다 —
+    {번호: [본문 줄, ...] — 저장된 순서 그대로} 형태로 불러온다 —
     phone_link 쪽 감시 함수들(watch_notifications()/watch_new_messages())과
     똑같은 구조라, 이걸 그대로 seen_lines_by_sender/seen_bodies_by_phone에
-    넘기면 재시작 전후로 "언제 마지막으로 봤는지" 판단이 끊기지 않고
-    이어진다(자세한 쿨다운 이유는 watch_notifications() 설명 참고).
+    넘기면 재시작 전후로 "어디까지 봤는지" 판단이 끊기지 않고 이어진다
+    (자세한 이유는 watch_notifications()의 _new_lines_since() 설명 참고 —
+    내용이 아니라 "카드에 쌓인 순서"로 새 줄을 가려내는 방식이라, 순서를
+    실제 저장 순서와 맞춰서 넘겨야 한다).
 
     watch_daemon.py를 껐다 켜면 phone_link 쪽 "이미 처리한 내용" 기억이
     메모리라서 초기화되는데, 그 시점에 알림 카드나 대화 목록에 예전
@@ -125,12 +126,6 @@ def _load_recent_seen(server: str, limit: int = 300, retries: int = 5, retry_del
     내용을 미리 불러와서 phone_link 쪽 중복 방지 상태를 채워두면, 알림/
     대화 목록 자체는 안 건드리면서도 재시작으로 인한 중복 저장을 막을
     수 있다.
-
-    시각은 화면에 찍히는 msg_time 문자열이 아니라 서버가 실제로 저장한
-    created_at(로컬 시각)을 epoch로 변환해서 쓴다 — msg_time은 상대
-    시간 표시 등으로 계속 바뀔 수 있어 재시작 시점엔 원래 감지했을 때와
-    다른 값일 수 있고(그러면 쿨다운 판단이 아예 어긋난다), created_at은
-    실제로 그 메시지를 저장한 순간을 가리키는 고정값이라 믿을 수 있다.
 
     ⚠ 저장된 body를 줄 단위로 쪼개서 넣는다 — --merge-window를 켜서 여러
     줄이 "A\\nB"처럼 하나로 합쳐져 저장된 경우, phone_link 쪽에서는 여전히
@@ -172,23 +167,22 @@ def _load_recent_seen(server: str, limit: int = 300, retries: int = 5, retry_del
 
     try:
         # /api/messages는 평평한 목록이 아니라 스레드({"complaint": ..,
-        # "replies": [..]}) 단위로 내려온다 — 민원(complaint)과 그 안에 섞여
-        # 들어갈 수 있는 수신 문자(답신 사이에 다시 온 후속 민원 등)를 모두
-        # 훑어야 "이미 저장된 수신 문자"를 빠짐없이 기억한다.
+        # "replies": [..]}) 단위로 내려오고, 스레드 자체도 최신 순이라
+        # 그대로 모으면 저장 순서가 뒤집힌다 — 알림 카드에 실제로 쌓인
+        # 순서(오래된 것부터)와 맞춰야 위치 기반 비교가 정확히 동작하므로,
+        # 모든 수신 문자를 모은 뒤 id 기준으로 다시 오름차순 정렬한다.
+        rows = []
         for t in resp.json().get("threads", []):
             candidates = [t.get("complaint")] + (t.get("replies") or [])
             for m in candidates:
-                if not m or m.get("direction") != "in":
-                    continue
-                created_at = m.get("created_at")
-                try:
-                    seen_at = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").timestamp()
-                except (TypeError, ValueError):
-                    seen_at = time.time()  # 형식이 안 맞으면 "방금 봤다"로 보수적으로 처리
-                already_seen = seen.setdefault(m["phone_number"], {})
-                for line in (m["body"] or "").split("\n"):
-                    if line:
-                        already_seen[line] = seen_at
+                if m and m.get("direction") == "in":
+                    rows.append(m)
+        rows.sort(key=lambda m: m.get("id") or 0)
+        for m in rows:
+            already_seen = seen.setdefault(m["phone_number"], [])
+            for line in (m["body"] or "").split("\n"):
+                if line:
+                    already_seen.append(line)
     except Exception as e:
         print(f"[경고] 기존 메시지 응답을 처리하지 못해 중복 방지 없이 시작합니다: {e!r}")
     return seen
