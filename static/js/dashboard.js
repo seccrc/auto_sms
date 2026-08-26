@@ -36,6 +36,7 @@ async function loadTemplates() {
                 </div>`).join('');
         }
         renderThreads(); // 상용문구 목록이 새로 로드되면 답신 상자의 문구 드롭다운도 갱신
+        renderAutoReplyTemplateOptions();
     } catch (e) {
         listEl.innerHTML = '<div class="empty">불러오기 실패</div>';
     }
@@ -72,6 +73,43 @@ async function deleteTemplate(id) {
     if (!confirm('이 상용문구를 삭제할까요?')) return;
     await fetch(`/api/templates/${id}`, { method: 'DELETE' });
     loadTemplates();
+}
+
+// ── 업무외 자동발송 ──
+function renderAutoReplyTemplateOptions() {
+    const sel = document.getElementById('autoReplyTemplateSelect');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— 자동발송할 상용문구 선택 —</option>' +
+        templatesCache.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('');
+    if (current) sel.value = current;
+}
+
+async function loadAutoReplySettings() {
+    try {
+        const r = await fetch('/api/settings/auto_reply');
+        const d = await r.json();
+        document.getElementById('autoReplyEnabled').checked = !!d.enabled;
+        renderAutoReplyTemplateOptions();
+        if (d.template_id) document.getElementById('autoReplyTemplateSelect').value = d.template_id;
+        const statusEl = document.getElementById('autoReplyStatus');
+        statusEl.textContent = d.business_hours_now ? '지금은 업무시간이라 자동발송은 대기 상태입니다.' : '지금은 업무외 시간입니다.';
+    } catch (e) {}
+}
+
+async function saveAutoReplySettings() {
+    const enabled = document.getElementById('autoReplyEnabled').checked;
+    const templateId = document.getElementById('autoReplyTemplateSelect').value;
+    if (enabled && !templateId) {
+        alert('자동발송할 상용문구를 먼저 선택하세요');
+        document.getElementById('autoReplyEnabled').checked = false;
+        return;
+    }
+    try {
+        await fetch('/api/settings/auto_reply', {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({enabled, template_id: templateId ? Number(templateId) : null})
+        });
+    } catch (e) {}
 }
 
 // ── 민원 문자 목록 (스레드) ──
@@ -275,4 +313,5 @@ async function saveMessageCell(input) {
 
 loadTemplates();
 loadMessages();
+loadAutoReplySettings();
 setInterval(loadMessages, 15000);   // 워처가 새로 저장한 수신 문자를 화면에 자동 반영

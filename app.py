@@ -9,9 +9,11 @@ watch_daemon.py와 phone_link.py는 pywinauto(Windows 전용)를 쓰므로 이 �
 자체는 아무 OS에서나 뜨지만, 실제 발송(/api/send)과 감시 데몬은 휴대폰
 연결 앱이 설치된 윈도우 PC에서만 동작한다.
 """
+from datetime import datetime
+
 from flask import Flask, jsonify, render_template, request
 
-from db import get_db, init_db, make_dedup_key, now_local
+from db import get_db, get_setting, init_db, make_dedup_key, now_local, set_setting
 
 app = Flask(__name__)
 # git pull로 dashboard.html이 바뀌어도 서버 재시작 없이 다음 요청부터 바로
@@ -96,6 +98,70 @@ def api_list_messages():
     return jsonify({"threads": _build_threads([dict(r) for r in rows])})
 
 
+# 업무외 자동발송이 "업무시간"으로 볼 범위 — 평일 09:00~18:00. 필요하면 이
+# 상수만 바꾸면 된다(화면에는 아직 별도 설정 UI가 없음).
+BUSINESS_START_HOUR = 9
+BUSINESS_END_HOUR = 18
+
+# 나눠 보낸 문자처럼 같은 번호에서 짧은 시간 안에 여러 통이 연달아 올 때,
+# 매 통마다 자동발송이 또 나가면 스팸처럼 느껴진다 — 그 번호로 이 시간(분)
+# 안에 이미 발신 문자가 나갔으면 자동발송을 건너뛴다.
+AUTO_REPLY_QUIET_MINUTES = 5
+
+
+def _is_business_hours(now: datetime = None) -> bool:
+    now = now or datetime.now()
+    if now.weekday() >= 5:  # 5=토요일, 6=일요일
+        return False
+    return BUSINESS_START_HOUR <= now.hour < BUSINESS_END_HOUR
+
+
+def _maybe_send_auto_reply(phone_number: str):
+    """업무외 시간에 새 민원이 들어왔고 "업무외 자동발송"이 켜져 있으면,
+    화면에서 골라둔 상용문구를 그 번호로 자동 발송한다. 업무시간 안이면
+    직원이 직접 확인/발송하는 게 기본이라 아무것도 하지 않는다."""
+    if _is_business_hours():
+        return
+
+    conn = get_db()
+    try:
+        if get_setting("auto_reply_enabled", "0") != "1":
+            return
+        template_id = get_setting("auto_reply_template_id", "")
+        if not template_id:
+            return
+        template = conn.execute(
+            "SELECT body FROM templates WHERE id=?", (template_id,)
+        ).fetchone()
+        if not template:
+            return
+        recent_out = conn.execute(
+            "SELECT 1 FROM messages WHERE phone_number=? AND direction='out' "
+            f"AND created_at >= datetime('now','localtime','-{AUTO_REPLY_QUIET_MINUTES} minutes') LIMIT 1",
+            (phone_number,),
+        ).fetchone()
+        if recent_out:
+            return
+        body = template["body"]
+    finally:
+        conn.close()
+
+    try:
+        import phone_link
+        phone_link.send_message(phone_number, body)
+    except Exception as e:
+        print(f"[업무외 자동발송] 실패 ({phone_number}): {e!r}")
+        return
+
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at) VALUES (?,?,'out',NULL,?)",
+        (phone_number, body, now_local()),
+    )
+    conn.commit()
+    conn.close()
+
+
 @app.route("/api/messages", methods=["POST"])
 def api_save_message():
     """watch_daemon.py가 새 수신 문자를 감지했을 때 호출하는 엔드포인트.
@@ -120,6 +186,8 @@ def api_save_message():
     inserted = cur.rowcount > 0
     conn.commit()
     conn.close()
+    if inserted:
+        _maybe_send_auto_reply(phone_number)
     return jsonify({"ok": True, "inserted": inserted})
 
 
@@ -249,6 +317,26 @@ def api_delete_template(tid):
     conn.execute("DELETE FROM templates WHERE id=?", (tid,))
     conn.commit()
     conn.close()
+    return jsonify({"ok": True})
+
+
+# ── 업무외 자동발송 설정 ────────────────────────────────────
+@app.route("/api/settings/auto_reply", methods=["GET"])
+def api_get_auto_reply_settings():
+    template_id = get_setting("auto_reply_template_id", "")
+    return jsonify({
+        "enabled": get_setting("auto_reply_enabled", "0") == "1",
+        "template_id": int(template_id) if template_id else None,
+        "business_hours_now": _is_business_hours(),
+    })
+
+
+@app.route("/api/settings/auto_reply", methods=["PUT"])
+def api_update_auto_reply_settings():
+    data = request.get_json(force=True, silent=True) or {}
+    set_setting("auto_reply_enabled", "1" if data.get("enabled") else "0")
+    template_id = data.get("template_id")
+    set_setting("auto_reply_template_id", str(template_id) if template_id else "")
     return jsonify({"ok": True})
 
 

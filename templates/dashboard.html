@@ -123,6 +123,18 @@
 <h1>📱 auto_sms</h1>
 <p class="sub">휴대폰과 연결 앱으로 수신한 문자를 자동 저장하고, 민원별로 답신을 이어서 발송합니다.</p>
 
+<div class="card">
+  <h2>🌙 업무외 자동발송</h2>
+  <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer;">
+    <input type="checkbox" id="autoReplyEnabled" onchange="saveAutoReplySettings()" style="margin:0;">
+    <span>평일 09:00~18:00 외 시간에 접수된 문자에 아래 상용문구를 자동 발송</span>
+  </label>
+  <select id="autoReplyTemplateSelect" onchange="saveAutoReplySettings()">
+    <option value="">— 자동발송할 상용문구 선택 —</option>
+  </select>
+  <div id="autoReplyStatus" style="font-size:12px;color:var(--ink-faint);"></div>
+</div>
+
 <div class="grid">
   <div class="card">
     <h2>💬 상용문구 관리</h2>

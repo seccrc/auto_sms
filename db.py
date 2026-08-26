@@ -37,6 +37,11 @@ def init_db():
             sort_no     INTEGER DEFAULT 0,
             created_at  TEXT DEFAULT (datetime('now', 'localtime'))
         );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,               -- 예: auto_reply_enabled, auto_reply_template_id
+            value TEXT
+        );
     """)
     _migrate_message_columns(conn)
     conn.commit()
@@ -66,6 +71,24 @@ def _migrate_message_columns(conn):
     for col, col_type in _MESSAGE_MANUAL_COLUMNS.items():
         if col not in existing:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {col} {col_type}")
+
+
+def get_setting(key: str, default: str = None) -> str:
+    conn = get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+
+def set_setting(key: str, value: str):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
 
 
 def make_dedup_key(phone_number: str, body: str, msg_time: str) -> str:
