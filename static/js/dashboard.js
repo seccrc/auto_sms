@@ -1,5 +1,14 @@
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+// 휴대폰과 연결 알림에서 읽어온 msg_time은 "오후 9:26"/"어제" 같은 상대 표기라
+// 행마다 형식이 제각각이었다. created_at은 항상 "YYYY-MM-DD HH:MM:SS"로 저장돼
+// 있으므로 이걸 우선 써서 "YYYY-MM-DD HH:MM"로 통일해 보여준다.
+function formatDateTime(m) {
+    const s = (m && (m.created_at || m.msg_time)) || '';
+    const match = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+    return match ? `${match[1]} ${match[2]}` : s;
+}
+
 let templatesCache = [];
 const STATUS_OPTIONS = ['접수', '부서전달', '담당자확인', '처리완료'];
 const MANUAL_INPUT_OPTIONS = ['', '행정종합관찰제', '종합민원이력시스템'];
@@ -346,7 +355,7 @@ function renderThreads() {
         const repliesHtml = t.replies.map(rp => `
             <div class="reply">
                 <div class="reply-body"><span class="pill ${rp.direction === 'in' ? 'pill-in' : 'pill-out'}">${rp.direction === 'in' ? '수신' : '발신'}</span>${rp.auto_sent ? '<span class="pill pill-muted">자동</span>' : ''}${esc(rp.body)}</div>
-                <div class="reply-time">${esc(rp.msg_time || rp.created_at || '')}</div>
+                <div class="reply-time">${esc(formatDateTime(rp))}</div>
             </div>`).join('');
 
         const checked = selectedThreadIds.has(m.id) ? 'checked' : '';
@@ -355,7 +364,7 @@ function renderThreads() {
             <div class="thread">
                 <div class="msg-row">
                     <div class="select-col"><input type="checkbox" ${checked} onchange="toggleThreadSelect(${m.id}, this.checked)" title="병합할 스레드로 선택"></div>
-                    <div class="meta">${esc(m.msg_time || m.created_at || '')}</div>
+                    <div class="meta">${esc(formatDateTime(m))}</div>
                     <div class="phone">${esc(m.phone_number)}</div>
                     <div class="name">${esc(m.contact_name || '-')}</div>
                     <div class="msg-body"><span class="pill ${isComplaint ? 'pill-in' : 'pill-out'}">${isComplaint ? '수신' : '발신'}</span>${esc(m.body)}</div>

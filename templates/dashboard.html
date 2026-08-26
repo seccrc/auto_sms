@@ -108,7 +108,7 @@
   .merge-bar .btn-primary:disabled { background: #9fb0e0; cursor: default; }
   .thread { border-top: 1px solid var(--line); }
   .msg-row, .col-head {
-    display: grid; grid-template-columns: 22px 78px 100px 70px 1fr 96px 116px 130px 34px;
+    display: grid; grid-template-columns: 22px 128px 100px 70px 1fr 96px 116px 130px 34px;
     gap: 10px; align-items: start; padding: 12px 20px;
   }
   .col-head {
@@ -118,7 +118,7 @@
   .col-head > div:nth-child(6), .col-head > div:nth-child(7), .col-head > div:nth-child(8) { text-align: center; }
   .select-col { display: flex; justify-content: center; padding-top: 2px; }
   .select-col input { margin: 0; cursor: pointer; }
-  .msg-row .meta { font-size: 12px; color: var(--ink-faint); white-space: nowrap; }
+  .msg-row .meta { font-size: 12px; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .msg-row .phone { font-size: 12.5px; font-weight: 600; }
   .msg-row .name { font-size: 12px; color: var(--ink-soft); }
   .msg-body { font-size: 13px; line-height: 1.55; white-space: pre-line; }
@@ -135,13 +135,13 @@
   .tag-empty { background: none; font-weight: 400; color: var(--ink-faint); }
   .receipt-col .tag { font-family: 'SFMono-Regular', Consolas, monospace; }
   .edit-col { display: flex; justify-content: center; padding-top: 2px; }
-  .replies { padding: 0 20px 10px calc(20px + 22px + 78px + 10px); }
+  .replies { padding: 0 20px 10px calc(20px + 22px + 128px + 10px); }
   .reply { display: flex; gap: 10px; padding: 7px 0 7px 26px; border-left: 2px solid var(--line); margin-left: 6px; position: relative; }
   .reply::before { content: ''; position: absolute; left: -5px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
   .reply-body { font-size: 12.5px; color: var(--ink-soft); flex: 1; line-height: 1.5; }
-  .reply-time { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
-  .toggle-send { font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; font-weight: 600; margin: 0 0 10px calc(20px + 22px + 78px + 10px + 26px); padding: 4px 0; }
-  .send-box { margin: 0 20px 14px calc(20px + 22px + 78px + 10px + 26px); padding: 10px 12px; background: var(--paper); border: 1px dashed var(--line); border-radius: 8px; }
+  .reply-time { font-size: 11px; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .toggle-send { font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; font-weight: 600; margin: 0 0 10px calc(20px + 22px + 128px + 10px + 26px); padding: 4px 0; }
+  .send-box { margin: 0 20px 14px calc(20px + 22px + 128px + 10px + 26px); padding: 10px 12px; background: var(--paper); border: 1px dashed var(--line); border-radius: 8px; }
   .send-box .row { display: flex; gap: 8px; }
   .send-box select { flex: 0 0 auto; width: auto; margin-bottom: 0; font-family: inherit; font-size: 12px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
   .send-box textarea { flex: 1; margin-bottom: 0; font-family: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; resize: vertical; min-height: 34px; }
