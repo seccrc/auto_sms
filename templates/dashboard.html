@@ -107,7 +107,15 @@
   .merge-bar button { padding: 5px 10px; font-size: 12px; }
   .merge-bar .btn-primary:disabled { background: #9fb0e0; cursor: default; }
   .thread { border-top: 1px solid var(--line); }
-  .msg-row { display: grid; grid-template-columns: 22px 84px 108px 84px 1fr 190px 34px; gap: 10px; align-items: start; padding: 12px 20px; }
+  .msg-row, .col-head {
+    display: grid; grid-template-columns: 22px 78px 100px 70px 1fr 96px 116px 130px 34px;
+    gap: 10px; align-items: start; padding: 12px 20px;
+  }
+  .col-head {
+    padding: 10px 20px; align-items: center; border-top: 1px solid var(--line);
+    font-size: 11px; font-weight: 700; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .02em;
+  }
+  .col-head > div:nth-child(6), .col-head > div:nth-child(7), .col-head > div:nth-child(8) { text-align: center; }
   .select-col { display: flex; justify-content: center; padding-top: 2px; }
   .select-col input { margin: 0; cursor: pointer; }
   .msg-row .meta { font-size: 12px; color: var(--ink-faint); white-space: nowrap; }
@@ -115,18 +123,20 @@
   .msg-row .name { font-size: 12px; color: var(--ink-soft); }
   .msg-body { font-size: 13px; line-height: 1.55; white-space: pre-line; }
   .msg-body .pill, .reply-body .pill { margin-right: 6px; }
-  .controls { display: flex; flex-direction: column; gap: 6px; }
-  .controls select { width: auto; margin-bottom: 0; font-family: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
-  .controls .fields { display: flex; gap: 6px; font-size: 11.5px; color: var(--ink-soft); }
-  .controls .fields span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status-col, .input-col, .receipt-col { font-size: 11.5px; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status-col { display: flex; justify-content: center; }
+  .status-col select, .input-col select, .receipt-col input {
+    width: 100%; margin-bottom: 0; font-family: inherit; font-size: 12px; padding: 4px 6px;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink);
+  }
   .edit-col { display: flex; justify-content: center; padding-top: 2px; }
-  .replies { padding: 0 20px 10px 20px; }
+  .replies { padding: 0 20px 10px calc(20px + 22px + 78px + 10px); }
   .reply { display: flex; gap: 10px; padding: 7px 0 7px 26px; border-left: 2px solid var(--line); margin-left: 6px; position: relative; }
   .reply::before { content: ''; position: absolute; left: -5px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
   .reply-body { font-size: 12.5px; color: var(--ink-soft); flex: 1; line-height: 1.5; }
   .reply-time { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
-  .toggle-send { font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; font-weight: 600; margin: 0 0 10px 26px; padding: 4px 0; }
-  .send-box { margin: 0 20px 14px 26px; padding: 10px 12px; background: var(--paper); border: 1px dashed var(--line); border-radius: 8px; }
+  .toggle-send { font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; font-weight: 600; margin: 0 0 10px calc(20px + 22px + 78px + 10px + 26px); padding: 4px 0; }
+  .send-box { margin: 0 20px 14px calc(20px + 22px + 78px + 10px + 26px); padding: 10px 12px; background: var(--paper); border: 1px dashed var(--line); border-radius: 8px; }
   .send-box .row { display: flex; gap: 8px; }
   .send-box select { flex: 0 0 auto; width: auto; margin-bottom: 0; font-family: inherit; font-size: 12px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
   .send-box textarea { flex: 1; margin-bottom: 0; font-family: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; resize: vertical; min-height: 34px; }
@@ -199,6 +209,17 @@
         <button class="btn-primary" id="mergeBtn" onclick="mergeSelectedThreads()" disabled>선택한 민원 병합</button>
         <button class="btn-ghost" onclick="clearThreadSelection()">선택 해제</button>
       </div>
+    </div>
+    <div class="col-head">
+      <div></div>
+      <div>시각</div>
+      <div>번호</div>
+      <div>이름</div>
+      <div>내용</div>
+      <div>처리상태</div>
+      <div>입력</div>
+      <div>접수번호</div>
+      <div></div>
     </div>
     <div id="threadList"><div class="empty">불러오는 중…</div></div>
   </div>

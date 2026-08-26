@@ -299,22 +299,25 @@ function renderThreads() {
         const isComplaint = m.direction === 'in';
         const editing = editingRowId === m.id;
 
-        let controlsHtml = '';
+        let statusHtml = '';
+        let inputHtml = '';
+        let receiptHtml = '';
         let editBtnHtml = '';
         if (isComplaint) {
             const statusVal = m.status || '접수';
-            const statusCell = editing
+            statusHtml = editing
                 ? `<select onchange="updateMessageStatus(${m.id}, this.value)">
                        ${STATUS_OPTIONS.map(s => `<option value="${esc(s)}" ${s === statusVal ? 'selected' : ''}>${esc(s)}</option>`).join('')}
                    </select>`
                 : `<span class="status-pill st-${statusVal}">${esc(statusVal)}</span>`;
-            const fieldsHtml = editing
+            inputHtml = editing
                 ? `<select class="cell-input" data-id="${m.id}" data-field="manual_input" onchange="saveMessageCell(this)">
                        ${MANUAL_INPUT_OPTIONS.map(o => `<option value="${esc(o)}" ${o === (m.manual_input || '') ? 'selected' : ''}>${o === '' ? '-' : esc(o)}</option>`).join('')}
-                   </select>
-                   <input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" placeholder="접수번호" onblur="saveMessageCell(this)">`
-                : `<span>입력: ${esc(m.manual_input || '-')}</span><span>접수번호: ${esc(m.receipt_no || '-')}</span>`;
-            controlsHtml = `<div class="controls">${statusCell}<div class="fields">${fieldsHtml}</div></div>`;
+                   </select>`
+                : esc(m.manual_input || '-');
+            receiptHtml = editing
+                ? `<input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" placeholder="접수번호" onblur="saveMessageCell(this)">`
+                : esc(m.receipt_no || '-');
             editBtnHtml = `<button class="icon-btn" onclick="toggleEditRow(${m.id})" title="${editing ? '수정 완료' : '수정'}">${editing ? '✓' : '✏️'}</button>`;
         }
 
@@ -334,7 +337,9 @@ function renderThreads() {
                     <div class="phone">${esc(m.phone_number)}</div>
                     <div class="name">${esc(m.contact_name || '-')}</div>
                     <div class="msg-body"><span class="pill ${isComplaint ? 'pill-in' : 'pill-out'}">${isComplaint ? '수신' : '발신'}</span>${esc(m.body)}</div>
-                    <div>${controlsHtml}</div>
+                    <div class="status-col">${statusHtml}</div>
+                    <div class="input-col">${inputHtml}</div>
+                    <div class="receipt-col">${receiptHtml}</div>
                     <div class="edit-col">${editBtnHtml}</div>
                 </div>
                 <div class="replies">${repliesHtml}</div>
