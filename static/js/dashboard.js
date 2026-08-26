@@ -1,5 +1,8 @@
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+const ICON_PENCIL = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+const ICON_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
 // 휴대폰과 연결 알림에서 읽어온 msg_time은 "오후 9:26"/"어제" 같은 상대 표기라
 // 행마다 형식이 제각각이었다. created_at은 항상 "YYYY-MM-DD HH:MM:SS"로 저장돼
 // 있으므로 이걸 우선 써서 "YYYY-MM-DD HH:MM"로 통일해 보여준다.
@@ -164,8 +167,16 @@ let searchQuery = '';  // 번호/이름/내용/처리상태/입력/접수번호 
 
 function onSearchInput(value) {
     searchQuery = (value || '').trim().toLowerCase();
+    document.getElementById('searchRow').classList.toggle('has-value', searchQuery.length > 0);
     currentPage = 1;
     renderThreads();
+}
+
+function clearSearch() {
+    const input = document.getElementById('searchInput');
+    input.value = '';
+    onSearchInput('');
+    input.focus();
 }
 
 function threadMatchesSearch(t) {
@@ -415,7 +426,7 @@ function renderThreads() {
             receiptHtml = editing
                 ? `<input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" placeholder="접수번호" onblur="saveMessageCell(this)">`
                 : (m.receipt_no ? `<span class="tag">${esc(m.receipt_no)}</span>` : `<span class="tag tag-empty">-</span>`);
-            editBtnHtml = `<button class="icon-btn" onclick="toggleEditRow(${m.id})" title="${editing ? '수정 완료' : '수정'}">${editing ? '✓' : '✏️'}</button>`;
+            editBtnHtml = `<button class="icon-btn" onclick="toggleEditRow(${m.id})" title="${editing ? '수정 완료' : '수정'}">${editing ? ICON_CHECK : ICON_PENCIL}</button>`;
         }
 
         const repliesHtml = t.replies.map(rp => `
