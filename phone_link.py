@@ -666,13 +666,24 @@ def _parse_notification_item(item) -> tuple:
         # 쪼개져 들어오는 경우)에 대비해, app.py의 api_save_message()가
         # "우리가 그 번호로 이미 보낸 문구와 똑같은지"를 서버 기록으로 한 번
         # 더 확인하는 안전망을 이중으로 두고 있다.
+        # body_line_is_field: body_lines와 나란히 움직이는 목록 — 그 줄의
+        # "원본"(bidi 정리 전) 텍스트가 U+2068(FSI)로 시작해 U+2069(PDI)로
+        # 끝나는, 즉 윈도우가 전화번호/"나" 같은 "필드성" 값에 씌우는
+        # 방향성 격리 표시로 통째로 감싸여 있었는지를 기록한다. 사람이
+        # 문자로 실제 입력한 본문은(그 내용이 우연히 숫자로만 이루어진
+        # 전화번호처럼 보이더라도) 이렇게 감싸이지 않는다 — 아래
+        # sender=="나" 복구 로직에서 "본문 끝에 다시 나온 진짜 상대방 번호
+        # 소제목"과 "상대방이 실제로 전화번호를 문자로 보낸 경우"를 구분하는
+        # 데 쓴다.
+        body_line_is_field = []
         skip_next_line = False
         for text_el in item.descendants(control_type="Text"):
             try:
                 auto_id = text_el.element_info.automation_id
             except Exception:
                 auto_id = None
-            txt = _clean_bidi(text_el.window_text())
+            raw = text_el.window_text() or ""
+            txt = _clean_bidi(raw)
             if auto_id == _NOTIF_APP_NAME_AUTO_ID:
                 app_name = txt
             elif auto_id == _NOTIF_SENDER_AUTO_ID:
@@ -680,6 +691,8 @@ def _parse_notification_item(item) -> tuple:
             elif auto_id == _NOTIF_TIME_AUTO_ID:
                 msg_time = txt
             elif txt:
+                raw_stripped = raw.strip()
+                is_field_value = raw_stripped.startswith("\u2068") and raw_stripped.endswith("\u2069")
                 # ⚠ 이 소비는 반드시 다른 판단보다 먼저 와야 한다 — 실제
                 # --dump로 확인해보니 "나" 바로 다음에 답신 본문 없이
                 # 상대방 소제목(sender와 같은 문자열)이 곧바로 다시 나오는
@@ -706,6 +719,7 @@ def _parse_notification_item(item) -> tuple:
                 if parent_type == "Button" or txt in _NOTIF_BUTTON_LABELS:
                     continue  # 버튼 라벨(통화/읽음으로 표시 등) — 본문 아님
                 body_lines.append(txt)
+                body_line_is_field.append(is_field_value)
 
         if app_name != _NOTIF_SMS_APP_NAME:
             return None  # 문자가 아닌 다른 앱 알림(카카오톡 등)은 건너뜀
@@ -723,13 +737,25 @@ def _parse_notification_item(item) -> tuple:
             # 보고한 상황과 정확히 일치).
             #
             # 다행히 이 상태에서도 진짜 상대방 번호(+저장된 이름)가 본문 후보
-            # 줄들 뒤쪽에 소제목처럼 다시 나온다는 걸 같은 dump로 확인했다 —
-            # 답신 입력창 바로 위, body_lines의 맨 뒤 근처에 번호 한 줄, 그
-            # 바로 다음에 저장된 연락처 이름 한 줄이 붙어 나온다. 뒤에서부터
-            # 훑어서 번호처럼 생긴 줄을 찾으면 그걸 진짜 발신자로 되찾고,
-            # 그 줄과(있으면) 바로 다음 이름 줄까지 본문에서 제외한다.
-            for i in range(len(body_lines) - 1, -1, -1):
-                if _PHONE_LIKE_RE.match(body_lines[i]):
+            # 줄들 맨 뒤(답신 입력창 바로 위)에 소제목처럼 다시 나온다는 걸
+            # 같은 dump로 확인했다 — 번호 한 줄, 그 바로 다음에 저장된
+            # 연락처 이름 한 줄이 붙어 나온다.
+            #
+            # ⚠ 상대방이 문자 "내용"으로 진짜 전화번호를 보낼 수도 있어서
+            # (예: "제 번호는 010-1234-5678입니다"가 아니라 그냥 번호만
+            # 달랑), 단순히 "숫자/하이픈처럼 생겼다"는 것만으로 판단하면 그
+            # 진짜 문자를 소제목으로 착각해 통째로 지워버릴 위험이 있다.
+            # 그래서 두 가지를 모두 만족할 때만 되찾는다 — (1) 원본 텍스트가
+            # 윈도우가 전화번호 같은 "필드성" 값에만 씌우는 방향성 격리
+            # 표시(U+2068~U+2069)로 감싸여 있었는지(body_line_is_field —
+            # 사람이 직접 입력한 문자 본문은 이렇게 감싸이지 않는다), (2)
+            # 그 줄이 본문 후보 목록의 맨 끝 두 줄(번호+이름 자리) 안에
+            # 있는지. 조건에 안 맞으면 복구를 포기하고 아래에서 안전하게
+            # 건너뛴다 — 오래된 실제 문자 내용을 잘못 지우는 쪽보다는 이
+            # 카드 하나를 이번 폴링에 놓치는 쪽이 낫다.
+            tail_start = max(0, len(body_lines) - 2)
+            for i in range(len(body_lines) - 1, tail_start - 1, -1):
+                if body_line_is_field[i] and _PHONE_LIKE_RE.match(body_lines[i]):
                     sender = body_lines[i]
                     del body_lines[i:i + 2]
                     break
