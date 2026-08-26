@@ -758,11 +758,28 @@ def _parse_notification_item(item) -> tuple:
             # 건드리지 않는다 — 최악의 경우 이름 한 줄이 잘못된 수신 문자로
             # 잘못 저장되는 정도이지, 진짜 문자를 지우는 것보다는 훨씬 낫다),
             # 못 찾으면 복구를 포기하고 아래에서 안전하게 건너뛴다.
-            for i in range(len(body_lines) - 1, -1, -1):
-                if body_line_is_field[i] and _PHONE_LIKE_RE.match(body_lines[i]):
-                    sender = body_lines[i]
-                    del body_lines[i]
-                    break
+            #
+            # ⚠ 이 소제목은 카드 하나 안에 한 번만 나온다는 보장이 없다 — 긴
+            # 대화에서 "나"↔상대 구간이 여러 번 바뀌면 같은 번호 소제목이
+            # 여러 줄에 걸쳐 반복해서 나올 수 있다. 예전엔 맨 뒤에서부터
+            # 찾은 것 "하나만" 지우고 break했는데, 그러면 앞쪽에 남은 다른
+            # 소제목 줄이 그대로 본문으로 저장돼 "010-2405-3466"이라는
+            # 문자를 상대가 보낸 것처럼 잘못 기록되는 사고로 이어졌다(실제
+            # 확인됨). 그래서 조건에 맞는 줄은 전부 걷어낸다 — 각 줄은
+            # bidi 격리 표시(사람이 입력한 본문이면 절대 안 씌워짐) +
+            # 전화번호 형태라는 같은 안전 조건을 통과한 것들이라, 여러 개를
+            # 지워도 진짜 문자를 지울 위험은 없다.
+            recovered = None
+            kept_lines, kept_is_field = [], []
+            for line, is_field in zip(body_lines, body_line_is_field):
+                if is_field and _PHONE_LIKE_RE.match(line):
+                    recovered = line
+                    continue
+                kept_lines.append(line)
+                kept_is_field.append(is_field)
+            if recovered:
+                sender = recovered
+                body_lines, body_line_is_field = kept_lines, kept_is_field
 
         if not sender:
             return None
