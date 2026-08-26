@@ -13,12 +13,26 @@ let templatesCache = [];
 const STATUS_OPTIONS = ['접수', '부서전달', '담당자확인', '처리완료'];
 const MANUAL_INPUT_OPTIONS = ['', '행정종합관찰제', '종합민원이력시스템'];
 
+// lastThreads는 15초 주기 폴링에만 갱신되므로, 저장 직후 사용자가 수정
+// 모드를 빠져나가 renderThreads()가 다시 그리면 방금 저장한 값이 아니라
+// 이 캐시에 남은 옛 값으로 되돌아가 보이는 문제가 있었다. 저장에 성공하면
+// 캐시도 같이 갱신해서 폴링을 기다리지 않고 바로 반영되게 한다.
+function findComplaintById(id) {
+    const t = lastThreads.find(t => t.complaint.id === id);
+    return t ? t.complaint : null;
+}
+
 async function updateMessageStatus(id, status) {
     try {
-        await fetch(`/api/messages/${id}/status`, {
+        const r = await fetch(`/api/messages/${id}/status`, {
             method: 'PATCH', headers: {'Content-Type':'application/json'},
             body: JSON.stringify({status})
         });
+        if (r.ok) {
+            const c = findComplaintById(id);
+            if (c) c.status = status;
+            renderThreads();
+        }
     } catch (e) {}
 }
 
@@ -396,19 +410,20 @@ function renderThreads() {
 // 하나만 보내면 나머지 한 칸이 빈 값으로 지워지기 때문에 항상 같이 보낸다.
 // 처리상태는 이 함수가 아니라 updateMessageStatus()가 따로 관리한다.
 async function saveMessageCell(input) {
-    const id = input.dataset.id;
+    const id = Number(input.dataset.id);
     const row = input.closest('.msg-row');
     const get = field => row.querySelector(`[data-field="${field}"]`).value.trim();
+    const manual_input = get('manual_input');
+    const receipt_no = get('receipt_no');
     try {
         const r = await fetch(`/api/messages/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                manual_input: get('manual_input'),
-                receipt_no: get('receipt_no'),
-            }),
+            body: JSON.stringify({ manual_input, receipt_no }),
         });
         if (r.ok) {
+            const c = findComplaintById(id);
+            if (c) { c.manual_input = manual_input; c.receipt_no = receipt_no; }
             input.classList.add('saved');
             setTimeout(() => input.classList.remove('saved'), 800);
         }
