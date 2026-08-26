@@ -253,7 +253,7 @@ function renderThreads() {
 
         const repliesHtml = t.replies.map(rp => `
             <div class="reply">
-                <div class="reply-body"><span class="pill ${rp.direction === 'in' ? 'pill-in' : 'pill-out'}">${rp.direction === 'in' ? '수신' : '발신'}</span>${esc(rp.body)}</div>
+                <div class="reply-body"><span class="pill ${rp.direction === 'in' ? 'pill-in' : 'pill-out'}">${rp.direction === 'in' ? '수신' : '발신'}</span>${rp.auto_sent ? '<span class="pill pill-muted">자동</span>' : ''}${esc(rp.body)}</div>
                 <div class="reply-time">${esc(rp.msg_time || rp.created_at || '')}</div>
             </div>`).join('');
 

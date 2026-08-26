@@ -61,6 +61,7 @@ _MESSAGE_MANUAL_COLUMNS = {
     "manual_input": "TEXT DEFAULT ''",   # 입력
     "receipt_no":   "TEXT DEFAULT ''",   # 접수번호
     "thread_id":    "INTEGER DEFAULT NULL",  # 수동 병합된 스레드 묶음 id
+    "auto_sent":    "INTEGER DEFAULT 0",     # 업무외 자동발송으로 나간 답신이면 1 — 화면에 "자동" 배지 표시용
 }
 
 

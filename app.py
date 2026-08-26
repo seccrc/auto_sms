@@ -155,7 +155,7 @@ def _maybe_send_auto_reply(phone_number: str):
 
     conn = get_db()
     conn.execute(
-        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at) VALUES (?,?,'out',NULL,?)",
+        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at, auto_sent) VALUES (?,?,'out',NULL,?,1)",
         (phone_number, body, now_local()),
     )
     conn.commit()
