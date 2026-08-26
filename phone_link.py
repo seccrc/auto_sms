@@ -114,6 +114,15 @@ _CONVERSATION_LIST_CRITERIA = dict(auto_id="CVSListView", control_type="List")
 _COMPOSE_BOX_CRITERIA = dict(auto_id="InputTextBox", control_type="Edit")
 _SEND_BUTTON_CRITERIA = dict(auto_id="SendMessageButton", control_type="Button")
 _NEW_MESSAGE_BUTTON_CRITERIA = dict(auto_id="NewMessageButton", control_type="Button")
+# "새 메시지"의 받는 사람 입력칸 — --dump로 실제 확인해보니 이 Edit의
+# auto_id("TextBox")가 좌측 "메시지 검색" 상자의 Edit과 완전히 같아서,
+# 창 전체에서 Edit을 찾아 found_index=0으로 집으면(예전 코드) "메시지
+# 검색" 쪽이 먼저 걸려버린다 — 그러면 번호를 검색창에 입력하고, 받는
+# 사람 칸은 계속 빈 채로 본문만 채워지는 사고로 이어진다(실제 확인됨).
+# 그래서 받는 사람 칸을 담고 있는 부모 그룹(ContactSuggestionsBox)
+# 안에서만 Edit을 찾아야 한다.
+_CONTACT_SUGGESTIONS_BOX_CRITERIA = dict(auto_id="ContactSuggestionsBox", control_type="Group")
+_TO_BOX_CRITERIA = dict(auto_id="TextBox", control_type="Edit")
 
 # 대화 목록 행의 접근성 이름 형식: "{발신자}와의 대화 메시지 미리 보기 {미리보기}"
 _ROW_PATTERN = re.compile(r"^(.*?)와의 대화 메시지 미리 보기 (.*)$", re.DOTALL)
@@ -351,17 +360,38 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
     btn.wait("exists enabled visible", timeout=timeout)
     btn.click_input()
     time.sleep(1)
-    to_box = win.child_window(control_type="Edit", found_index=0)
+    # ⚠ 받는 사람 칸은 반드시 ContactSuggestionsBox 그룹 "안에서" 찾아야
+    # 한다 — _TO_BOX_CRITERIA 설명 참고. 창 전체에서 찾으면 "메시지 검색"
+    # 상자를 잘못 집는다.
+    to_box = win.child_window(**_CONTACT_SUGGESTIONS_BOX_CRITERIA).child_window(**_TO_BOX_CRITERIA)
     to_box.wait("exists enabled visible", timeout=timeout)
-    to_box.click_input()
-    to_box.type_keys(phone_number, with_spaces=True)
-    time.sleep(1)
-    # 번호 입력 후 나오는 연락처 후보를 엔터로 확정 — 화면마다 동작이
-    # 다를 수 있어 실패해도 무시하고 계속 진행한다.
-    try:
-        to_box.type_keys("{ENTER}")
-    except Exception:
-        pass
+
+    # 번호 입력 후 나오는 연락처 후보를 엔터로 확정해야 하는데, 화면마다
+    # 동작이 다를 수 있어 실패할 수 있다 — 그래서 입력 후 실제로 그 칸에
+    # 뭔가 채워졌는지(placeholder "받는 사람"이 아니라 실제 값으로
+    # 바뀌었는지) 확인하고, 안 됐으면 한 번 더 시도한다. 그래도 안 되면
+    # "받는 사람"이 빈 채로 본문만 입력되고 조용히 발송 시도하는 사고로
+    # 이어지므로, 여기서 예외를 던져 발송 자체를 멈춘다.
+    for attempt in range(2):
+        to_box.click_input()
+        to_box.type_keys(phone_number, with_spaces=True)
+        time.sleep(1)
+        try:
+            to_box.type_keys("{ENTER}")
+        except Exception:
+            pass
+        time.sleep(0.5)
+        try:
+            filled = bool(_clean_bidi(to_box.window_text()))
+        except Exception:
+            filled = False
+        if filled:
+            return
+
+    raise RuntimeError(
+        f"받는 사람 칸에 번호({phone_number})가 제대로 입력되지 않았습니다 — "
+        "새 대화 시작이 실패한 것으로 보입니다."
+    )
 
 
 def send_message(phone_number: str, body: str):
