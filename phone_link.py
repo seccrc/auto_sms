@@ -567,6 +567,14 @@ def _parse_notification_item(item) -> tuple:
         sender = ""
         msg_time = ""
         body_lines = []
+        # 카드 안에서 "나"/"{상대}" 소제목이 나올 때마다 그 아래 줄들이 누가
+        # 보낸 건지 바뀐다 — 소제목 자체만 걸러내고 끝내면, 그 바로 다음에
+        # 오는 "나"가 실제로 보낸 답신 본문(예: "접수되었습니다.")까지 상대방이
+        # 보낸 본문인 것처럼 body_lines에 섞여 들어간다(우리가 보낸 답신이
+        # 다시 수신 문자로 저장되는 사고로 실제 이어짐). 그래서 지금 보고
+        # 있는 줄이 "나"가 보낸 구간인지를 상태로 계속 추적해서, 그 구간에
+        # 속한 줄은 아예 본문 후보에 넣지 않는다.
+        in_self_section = False
         for text_el in item.descendants(control_type="Text"):
             try:
                 auto_id = text_el.element_info.automation_id
@@ -580,14 +588,20 @@ def _parse_notification_item(item) -> tuple:
             elif auto_id == _NOTIF_TIME_AUTO_ID:
                 msg_time = txt
             elif txt:
-                if txt in _NOTIF_SELF_SENDER_LABELS or txt == sender:
-                    continue  # 스레드 중간에 "누가 말했는지" 다시 알려주는 소제목 — 본문 아님
+                if txt in _NOTIF_SELF_SENDER_LABELS:
+                    in_self_section = True
+                    continue  # "나" 소제목 — 본문 아님, 이 아래 줄부터 우리가 보낸 구간
+                if txt == sender:
+                    in_self_section = False
+                    continue  # 상대방 소제목 재등장 — 본문 아님, 이 아래 줄부터 다시 상대방 구간
                 try:
                     parent_type = text_el.parent().element_info.control_type
                 except Exception:
                     parent_type = None
                 if parent_type == "Button" or txt in _NOTIF_BUTTON_LABELS:
                     continue  # 버튼 라벨(통화/읽음으로 표시 등) — 본문 아님
+                if in_self_section:
+                    continue  # 우리가 보낸 답신 본문 — 수신 문자로 취급하면 안 됨
                 body_lines.append(txt)
 
         if app_name != _NOTIF_SMS_APP_NAME:
