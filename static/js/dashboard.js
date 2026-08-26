@@ -137,38 +137,68 @@ async function sendSms() {
 }
 
 // ── 최근 메시지 ──
+let lastMessages = [];
+let editingRowId = null;  // 연필 아이콘으로 지금 수정 모드인 행의 메시지 id (한 번에 하나만)
+
 async function loadMessages() {
-    const body = document.getElementById('msgTableBody');
-    // 15초마다 자동 갱신되는데, 그 사이 직원이 입력/처리/접수번호 칸에 뭔가
+    // 15초마다 자동 갱신되는데, 그 사이 직원이 입력/접수번호 칸에 뭔가
     // 타이핑 중이면 통째로 다시 그리면서 입력 중인 내용이 날아가버린다 —
     // 그 칸에 포커스가 있는 동안은 이번 갱신을 건너뛴다.
     if (document.activeElement && document.activeElement.classList.contains('cell-input')) return;
+    const body = document.getElementById('msgTableBody');
     try {
         const r = await fetch('/api/messages?limit=100');
         const d = await r.json();
-        const msgs = d.messages || [];
-        if (!msgs.length) {
-            body.innerHTML = '<tr><td colspan="8" class="empty">아직 메시지가 없습니다</td></tr>';
-            return;
-        }
-        body.innerHTML = msgs.map(m => `
+        lastMessages = d.messages || [];
+        renderMessages();
+    } catch (e) {
+        body.innerHTML = '<tr><td colspan="10" class="empty">불러오기 실패</td></tr>';
+    }
+}
+
+// 연필 아이콘을 누르면 그 행만 수정 모드(입력창)로 바뀐다 — 매번 다시
+// 서버에서 받아올 필요 없이 방금 받아온 목록(lastMessages)으로 다시 그린다.
+function toggleEditRow(id) {
+    editingRowId = (editingRowId === id) ? null : id;
+    renderMessages();
+}
+
+function renderMessages() {
+    const body = document.getElementById('msgTableBody');
+    if (!lastMessages.length) {
+        body.innerHTML = '<tr><td colspan="10" class="empty">아직 메시지가 없습니다</td></tr>';
+        return;
+    }
+    body.innerHTML = lastMessages.map(m => {
+        const editing = editingRowId === m.id;
+        const statusCell = editing
+            ? `<select onchange="updateMessageStatus(${m.id}, this.value)">
+                   ${STATUS_OPTIONS.map(s => `<option value="${esc(s)}" ${s === (m.status || '') ? 'selected' : ''}>${esc(STATUS_LABELS[s])}</option>`).join('')}
+               </select>`
+            : `<span class="pill ${m.status === '처리완료' ? 'pill-out' : (m.status === '처리중' ? 'pill-in' : 'pill-muted')}">${esc(STATUS_LABELS[m.status || ''])}</span>`;
+        const inputCell = editing
+            ? `<input class="cell-input" data-id="${m.id}" data-field="manual_input" value="${esc(m.manual_input || '')}" onblur="saveMessageCell(this)">`
+            : esc(m.manual_input || '-');
+        const receiptCell = editing
+            ? `<input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" onblur="saveMessageCell(this)">`
+            : esc(m.receipt_no || '-');
+        const repliedCell = m.replied === null
+            ? '-'
+            : `<span class="pill ${m.replied ? 'pill-out' : 'pill-bad'}">${m.replied ? '답신함' : '답신안함'}</span>`;
+        return `
             <tr>
                 <td><span class="pill ${m.direction === 'in' ? 'pill-in' : 'pill-out'}">${m.direction === 'in' ? '수신' : '발신'}</span></td>
                 <td>${esc(m.phone_number)}</td>
                 <td>${esc(m.contact_name || '')}</td>
                 <td class="msg-body">${esc(m.body)}</td>
                 <td>${esc(m.msg_time || m.created_at || '')}</td>
-                <td>
-                    <select onchange="updateMessageStatus(${m.id}, this.value)">
-                        ${STATUS_OPTIONS.map(s => `<option value="${esc(s)}" ${s === (m.status || '') ? 'selected' : ''}>${esc(STATUS_LABELS[s])}</option>`).join('')}
-                    </select>
-                </td>
-                <td><input class="cell-input" data-id="${m.id}" data-field="manual_input" value="${esc(m.manual_input || '')}" onblur="saveMessageCell(this)"></td>
-                <td><input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" onblur="saveMessageCell(this)"></td>
-            </tr>`).join('');
-    } catch (e) {
-        body.innerHTML = '<tr><td colspan="8" class="empty">불러오기 실패</td></tr>';
-    }
+                <td>${statusCell}</td>
+                <td>${inputCell}</td>
+                <td>${receiptCell}</td>
+                <td>${repliedCell}</td>
+                <td><button class="icon-btn" onclick="toggleEditRow(${m.id})" title="${editing ? '수정 완료' : '수정'}">${editing ? '✓' : '✏️'}</button></td>
+            </tr>`;
+    }).join('');
 }
 
 // 두 칸(입력/접수번호) 중 하나에서 포커스가 빠지면, 그 행의 두 값을
