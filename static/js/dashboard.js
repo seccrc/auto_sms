@@ -116,6 +116,8 @@ async function saveAutoReplySettings() {
 let lastThreads = [];
 let editingRowId = null;  // 연필 아이콘으로 지금 수정 모드인 민원(수신 문자)의 id (한 번에 하나만)
 let selectedThreadIds = new Set();  // 체크박스로 골라서 병합 대상이 된 스레드(민원)의 id들
+const THREADS_PER_PAGE = 10;
+let currentPage = 1;  // 15초 자동 갱신으로 목록이 다시 그려져도 보던 페이지를 유지한다
 
 async function loadMessages() {
     // 15초마다 자동 갱신되는데, 그 사이 직원이 입력/접수번호 칸에 뭔가
@@ -219,6 +221,27 @@ async function sendReply(phone, btn) {
     }
 }
 
+function goToPage(n) {
+    currentPage = n;
+    renderThreads();
+}
+
+function renderPagination(totalPages) {
+    if (totalPages <= 1) return '';
+    const btn = (label, page, opts = {}) => `
+        <button class="page-btn ${opts.active ? 'active' : ''}" ${opts.disabled ? 'disabled' : ''} onclick="goToPage(${page})">${label}</button>`;
+    let pages = '';
+    for (let p = 1; p <= totalPages; p++) {
+        pages += btn(p, p, { active: p === currentPage });
+    }
+    return `
+        <div class="pagination">
+            ${btn('‹ 이전', currentPage - 1, { disabled: currentPage === 1 })}
+            ${pages}
+            ${btn('다음 ›', currentPage + 1, { disabled: currentPage === totalPages })}
+        </div>`;
+}
+
 function renderThreads() {
     const listEl = document.getElementById('threadList');
     if (!lastThreads.length) {
@@ -226,8 +249,12 @@ function renderThreads() {
         updateMergeBar();
         return;
     }
+    const totalPages = Math.max(1, Math.ceil(lastThreads.length / THREADS_PER_PAGE));
+    currentPage = Math.min(Math.max(1, currentPage), totalPages);
+    const pageStart = (currentPage - 1) * THREADS_PER_PAGE;
+    const pageThreads = lastThreads.slice(pageStart, pageStart + THREADS_PER_PAGE);
     const tplOptions = templatesCache.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('');
-    listEl.innerHTML = lastThreads.map((t, idx) => {
+    listEl.innerHTML = pageThreads.map((t, idx) => {
         const m = t.complaint;
         const isComplaint = m.direction === 'in';
         const editing = editingRowId === m.id;
@@ -283,7 +310,7 @@ function renderThreads() {
                     </div>
                 </div>
             </div>`;
-    }).join('');
+    }).join('') + renderPagination(totalPages);
     updateMergeBar();
 }
 

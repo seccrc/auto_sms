@@ -118,6 +118,15 @@
   .st-부서전달 { background: var(--mark-soft); color: var(--mark); }
   .st-담당자확인 { background: #f1eafa; color: #6d3fa0; }
   .st-처리완료 { background: var(--good-soft); color: var(--good); }
+
+  .pagination { display: flex; justify-content: center; align-items: center; gap: 4px; padding: 14px 20px; flex-wrap: wrap; }
+  .page-btn {
+    min-width: 30px; padding: 5px 8px; font-size: 12px; font-weight: 600;
+    background: var(--surface); color: var(--ink-soft); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .page-btn:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+  .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .page-btn:disabled { color: var(--ink-faint); cursor: default; }
 </style>
 </head>
 <body>
