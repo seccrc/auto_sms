@@ -417,9 +417,12 @@ def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int 
                     continue
                 phone, contact_name, preview, msg_time = parsed
                 already_seen = seen_bodies_by_phone.setdefault(phone, set())
-                if not preview or preview in already_seen:
+                if not preview:
                     continue
-                already_seen.add(preview)
+                seen_key = (preview, msg_time)
+                if seen_key in already_seen:
+                    continue
+                already_seen.add(seen_key)
                 callback(phone, contact_name, preview, msg_time)
             polled_ok = True
         except Exception as e:
@@ -450,10 +453,18 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
     본 줄 내용을 전부 기억해뒀다가 매 폴링마다 "아직 못 본 줄"만 전부
     콜백으로 넘긴다 — 한 폴링 주기 사이에 같은 상대에게서 문자가 여러 개
     와도(카드에 여러 줄이 한꺼번에 새로 쌓여도) 폴링 간격과 무관하게 전부
-    잡힌다. 내용 기준으로 비교하는 이유는, 혹시 카드가 초기화되거나(예:
-    "모든 알림 지우기") 오래된 줄이 밀려나가도 "줄 개수"만으로 비교하는
-    것보다 안전하기 때문이다 — 다만 완전히 똑같은 문구를 두 번 연달아
-    보내는 극히 드문 경우는 두 번째가 누락될 수 있다.
+    잡힌다.
+
+    "본 줄"을 기억하는 키는 줄 내용 하나만이 아니라 (줄 내용, 그때 카드에
+    찍혀 있던 시각) 조합이다 — 처음엔 줄 내용만으로 비교했는데, 그러면
+    "완전히 같은 문구를 시간 간격을 두고 다시 보낸" 경우(예: 테스트 문구를
+    또 보냄, 또는 민원인이 같은 인사말을 며칠 뒤 또 보냄) 두 번째가 "이미
+    본 줄"로 잘못 취급돼 영원히 무시되는 문제가 실제로 있었다. 카드에
+    표시된 시각은 새 문자가 실제로 쌓일 때만 바뀌므로, 시각까지 같이
+    비교하면 "카드가 아직 그대로라 진짜 중복인 경우"와 "시간이 지나
+    똑같은 문구가 다시 온 경우"를 구분할 수 있다. 카드가 초기화되거나
+    (예: "모든 알림 지우기") 오래된 줄이 밀려나가도 "줄 개수"만으로
+    비교하는 것보다 이 방식이 안전하다는 원래 판단은 그대로 유지된다.
 
     AppNameTextBlock이 "메시지"인 항목만 문자로 취급하고, 카카오톡 등 다른
     앱 알림은 걸러서 무시한다.
@@ -495,9 +506,12 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                 phone, contact_name, body_lines, msg_time = parsed
                 already_seen = seen_lines_by_sender.setdefault(phone, set())
                 for line in body_lines:
-                    if not line or line in already_seen:
+                    if not line:
                         continue
-                    already_seen.add(line)
+                    seen_key = (line, msg_time)
+                    if seen_key in already_seen:
+                        continue
+                    already_seen.add(seen_key)
                     callback(phone, contact_name, line, msg_time)
             polled_ok = True
         except Exception as e:

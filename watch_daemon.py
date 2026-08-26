@@ -109,8 +109,11 @@ def make_reporter(server: str, merge_window: float = 0.0):
 
 
 def _load_recent_seen(server: str, limit: int = 300) -> dict:
-    """서버(app.py)에 이미 저장된 최근 수신 메시지를 {번호: {본문 줄, ...}}
-    형태로 불러온다.
+    """서버(app.py)에 이미 저장된 최근 수신 메시지를
+    {번호: {(본문 줄, 시각), ...}} 형태로 불러온다. phone_link 쪽 감시
+    함수들과 똑같이 (줄 내용, 시각) 조합을 키로 써야, 시간이 지나 완전히
+    같은 문구가 다시 와도 "이미 본 것"으로 착각해 영원히 무시하지 않는다
+    (자세한 이유는 watch_notifications()의 설명 참고).
 
     watch_daemon.py를 껐다 켜면 phone_link.watch_notifications()/
     watch_new_messages()의 "이미 처리한 내용" 기억이 메모리라서
@@ -146,7 +149,7 @@ def _load_recent_seen(server: str, limit: int = 300) -> dict:
                 already_seen = seen.setdefault(m["phone_number"], set())
                 for line in (m["body"] or "").split("\n"):
                     if line:
-                        already_seen.add(line)
+                        already_seen.add((line, m.get("msg_time") or ""))
     except Exception as e:
         print(f"[경고] 기존 메시지를 불러오지 못해 중복 방지 없이 시작합니다: {e!r}")
     return seen
