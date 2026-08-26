@@ -41,11 +41,20 @@
      쪽/헤더 위치는 그대로 유지됨). */
   .layout { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; flex: 1 1 auto; overflow-y: auto; } }
-  /* 업무외 자동발송 카드는 항상 고정, 상용문구 카드만 자기 영역 안에서 스크롤 */
+  /* 업무외 자동발송 카드는 항상 고정, 상용문구 카드는 "상용문구 관리" 제목만
+     고정하고 그 아래(목록+입력 폼)만 자기 영역 안에서 스크롤 */
   .rail { display: flex; flex-direction: column; gap: 20px; min-height: 0; }
   .rail > .card { flex: 0 0 auto; }
-  .rail > .card.card-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-  @media (max-width: 900px) { .rail > .card.card-scroll { flex: 0 0 auto; overflow: visible; } }
+  .rail > .card.card-scroll {
+    flex: 1 1 auto; min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .rail > .card.card-scroll > h2 { flex: 0 0 auto; }
+  .card-scroll-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  @media (max-width: 900px) {
+    .rail > .card.card-scroll { flex: 0 0 auto; overflow: visible; }
+    .card-scroll-body { overflow: visible; }
+  }
 
   .card {
     background: var(--surface);
@@ -202,16 +211,18 @@
 
     <div class="card card-scroll">
       <h2>💬 상용문구 관리</h2>
-      <div id="templateList"><div class="empty">불러오는 중…</div></div>
-      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
-        <input type="hidden" id="tplEditId">
-        <label>문구 제목</label>
-        <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
-        <label>문구 내용</label>
-        <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
-        <div class="row">
-          <button class="btn-primary" onclick="saveTemplate()">저장</button>
-          <button class="btn-ghost" onclick="resetTemplateForm()">새 문구로 초기화</button>
+      <div class="card-scroll-body">
+        <div id="templateList"><div class="empty">불러오는 중…</div></div>
+        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+          <input type="hidden" id="tplEditId">
+          <label>문구 제목</label>
+          <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
+          <label>문구 내용</label>
+          <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
+          <div class="row">
+            <button class="btn-primary" onclick="saveTemplate()">저장</button>
+            <button class="btn-ghost" onclick="resetTemplateForm()">새 문구로 초기화</button>
+          </div>
         </div>
       </div>
     </div>
