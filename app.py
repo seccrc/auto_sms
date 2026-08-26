@@ -188,8 +188,26 @@ def api_save_message():
     if not phone_number or not body:
         return jsonify({"error": "phone_number와 body는 필수입니다"}), 400
 
-    dedup_key = make_dedup_key(phone_number, body, msg_time)
     conn = get_db()
+    # 알림 패널 파싱(phone_link.py)이 우리가 보낸 답신을 수신 문자로 잘못
+    # 잡아내는 경우에 대한 안전망 — 알림 카드 안에서 "나"가 보낸 구간을
+    # UI 구조만으로 완벽하게 구분하기 어려워서(실제로 그 판단 로직이
+    # 오히려 진짜 수신 문자를 놓치는 사고로 이어진 적도 있음), 여기서는
+    # 같은 번호로 우리가 최근에 정확히 같은 문구를 보낸 적이 있는지를
+    # 서버 쪽 실제 발신 기록으로 한 번 더 확인한다 — 있으면 우리 답신이
+    # 알림에 다시 잡힌 것으로 보고 수신 문자로 저장하지 않는다. 기간을
+    # 하루로 넉넉히 잡은 이유는 알림 카드가 하루 넘게 안 지워지고 화면에
+    # 그대로 남아있는 경우도 실제로 있기 때문이다.
+    self_echo = conn.execute(
+        "SELECT 1 FROM messages WHERE phone_number=? AND direction='out' AND body=? "
+        "AND created_at >= datetime('now','localtime','-1 day') LIMIT 1",
+        (phone_number, body),
+    ).fetchone()
+    if self_echo:
+        conn.close()
+        return jsonify({"ok": True, "inserted": False, "skipped_self_echo": True})
+
+    dedup_key = make_dedup_key(phone_number, body, msg_time)
     cur = conn.execute(
         "INSERT OR IGNORE INTO messages (phone_number, contact_name, body, direction, msg_time, dedup_key, created_at) "
         "VALUES (?,?,?,'in',?,?,?)",
