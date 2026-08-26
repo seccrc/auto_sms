@@ -110,7 +110,7 @@ def make_reporter(server: str, merge_window: float = 0.0):
     return report
 
 
-def _load_recent_seen(server: str, limit: int = 300) -> dict:
+def _load_recent_seen(server: str, limit: int = 300, retries: int = 5, retry_delay: float = 2.0) -> dict:
     """서버(app.py)에 이미 저장된 최근 수신 메시지를
     {번호: {본문 줄: 저장된 시각(epoch), ...}} 형태로 불러온다 —
     phone_link 쪽 감시 함수들(watch_notifications()/watch_new_messages())과
@@ -139,18 +139,43 @@ def _load_recent_seen(server: str, limit: int = 300) -> dict:
     저장되는 문제가 있었다. 병합을 안 쓰는 경우(기본값)엔 한 줄짜리
     body를 쪼개봐야 자기 자신 하나만 나오므로 동작에 차이가 없다.
 
-    서버 연결에 실패하면 빈 상태로 시작한다 — 이 함수가 실패한다고 감시
-    자체를 못 하게 막을 이유는 없고, 최악의 경우도 예전과 같은(중복 가능)
-    동작으로 돌아가는 것뿐이다."""
+    서버(app.py)가 막 재시작된 직후라 아직 응답을 못 받는 상태일 수도
+    있다 — git pull로 app.py가 바뀌면 use_reloader가 자동으로 재시작하는데,
+    watch_daemon.py를 그 직후에 같이 재시작하면 app.py가 몇 초간 다시
+    뜨는 중이라 이 요청이 연결 자체에서 실패할 수 있다. 그 순간 바로
+    포기하고 빈 상태로 시작해버리면, 서버가 사실 다 아는 내용인데도
+    "재시작 직후라 하필 못 물어봐서" 다시 중복 저장하는 문제가 생긴다
+    (실제로 이 증상으로 확인됨). 그래서 연결 자체가 안 되는 경우엔
+    retry_delay초 간격으로 최대 retries번 다시 시도한다 — app.py가 보통
+    몇 초 안에 다시 뜨므로 이 정도면 충분하다.
+
+    연결에는 성공했는데 응답 내용을 처리하다 실패하는 경우(진짜 버그일
+    가능성이 높음)는 재시도하지 않고 바로 빈 상태로 시작한다 — 이 함수가
+    실패한다고 감시 자체를 못 하게 막을 이유는 없고, 최악의 경우도
+    예전과 같은(중복 가능) 동작으로 돌아가는 것뿐이다."""
     seen = {}
+    resp = None
+    last_error = None
+    for attempt in range(retries):
+        try:
+            resp = requests.get(f"{server}/api/messages", params={"limit": limit}, timeout=10)
+            resp.raise_for_status()
+            break
+        except Exception as e:
+            last_error = e
+            resp = None
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+    if resp is None:
+        print(f"[경고] 서버에 연결하지 못해({retries}번 재시도 후에도 실패) 중복 방지 없이 시작합니다: {last_error!r}")
+        return seen
+
     try:
-        r = requests.get(f"{server}/api/messages", params={"limit": limit}, timeout=10)
-        r.raise_for_status()
         # /api/messages는 평평한 목록이 아니라 스레드({"complaint": ..,
         # "replies": [..]}) 단위로 내려온다 — 민원(complaint)과 그 안에 섞여
         # 들어갈 수 있는 수신 문자(답신 사이에 다시 온 후속 민원 등)를 모두
         # 훑어야 "이미 저장된 수신 문자"를 빠짐없이 기억한다.
-        for t in r.json().get("threads", []):
+        for t in resp.json().get("threads", []):
             candidates = [t.get("complaint")] + (t.get("replies") or [])
             for m in candidates:
                 if not m or m.get("direction") != "in":
@@ -165,7 +190,7 @@ def _load_recent_seen(server: str, limit: int = 300) -> dict:
                     if line:
                         already_seen[line] = seen_at
     except Exception as e:
-        print(f"[경고] 기존 메시지를 불러오지 못해 중복 방지 없이 시작합니다: {e!r}")
+        print(f"[경고] 기존 메시지 응답을 처리하지 못해 중복 방지 없이 시작합니다: {e!r}")
     return seen
 
 
