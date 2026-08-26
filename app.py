@@ -14,6 +14,9 @@ from flask import Flask, jsonify, render_template, request
 from db import get_db, init_db, make_dedup_key, now_local
 
 app = Flask(__name__)
+# git pull로 dashboard.html이 바뀌어도 서버 재시작 없이 다음 요청부터 바로
+# 반영되게 한다 (기본은 템플릿을 한 번 읽으면 계속 캐시해서 쓴다).
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
 
 
@@ -233,4 +236,9 @@ def api_send():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8060, debug=False)
+    # use_reloader=True: app.py/db.py를 git pull로 덮어써도 파일 변경을 감지해
+    # 프로세스를 알아서 재시작한다(매번 손으로 껐다 켤 필요 없음). debug=True를
+    # 켜서 얻는 부작용(인터랙티브 디버거)은 host="0.0.0.0"으로 네트워크에
+    # 열려있는 이 서버에서는 원격 코드실행 위험이라 debug는 그대로 꺼둔 채
+    # use_reloader만 켠다.
+    app.run(host="0.0.0.0", port=8060, debug=False, use_reloader=True)
