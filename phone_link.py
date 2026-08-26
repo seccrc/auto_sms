@@ -133,6 +133,12 @@ _NOTIF_SMS_APP_NAME = "메시지"
 # 코드에서 눈으로 봐도 헷갈리지 않게 한다.
 _BIDI_STRIP_RE = re.compile(r"[\u2066-\u2069\u200e\u200f]")
 
+# 발신자 칸(CompactModeTitleTextBlock)이 "나"로 뜬 카드에서, 진짜 상대방
+# 번호를 본문 후보 줄들 사이에서 되찾을 때 쓰는 패턴 — 줄 전체가 숫자/하이픈/
+# 공백(+82 국가번호 표시 포함)뿐이어야 매칭되므로, 답신 본문 문장 중간에
+# "062-608-2114"처럼 전화번호가 섞여 있어도 그 문장 전체가 매칭되진 않는다.
+_PHONE_LIKE_RE = re.compile(r"^\+?\d[\d\-\s]{6,}\d$")
+
 
 def _clean_bidi(text: str) -> str:
     return _BIDI_STRIP_RE.sub("", text or "").strip()
@@ -703,10 +709,35 @@ def _parse_notification_item(item) -> tuple:
 
         if app_name != _NOTIF_SMS_APP_NAME:
             return None  # 문자가 아닌 다른 앱 알림(카카오톡 등)은 건너뜀
+
+        if sender in _NOTIF_SELF_SENDER_LABELS:
+            # CompactModeTitleTextBlock이 "나"로 뜨는 건 알림에서 직접 회신을
+            # 입력하는 잠깐의 과도기 상태만이 아니었다 — 실제 --dump로
+            # 확인해보니, 그 대화에서 우리가 마지막으로 답신을 보낸 뒤로는
+            # 상대방이 새 문자를 보내기 전까지 계속 "나"로 떠 있었다. 예전
+            # 코드는 이 경우 항목을 통째로 버렸는데(sender를 못 구했으니),
+            # 그러면 watch_notifications()가 그 번호의 진행 상태(seen_lines)를
+            # 전혀 갱신하지 못한 채로 폴링마다 계속 건너뛰게 되고, 그 사이
+            # 실제로 새 문자가 와도 카드가 아직 "나"로 남아있는 동안은 계속
+            # 못 잡는 사고로 이어진다(사용자가 "지금 수신이 안 되고 있다"고
+            # 보고한 상황과 정확히 일치).
+            #
+            # 다행히 이 상태에서도 진짜 상대방 번호(+저장된 이름)가 본문 후보
+            # 줄들 뒤쪽에 소제목처럼 다시 나온다는 걸 같은 dump로 확인했다 —
+            # 답신 입력창 바로 위, body_lines의 맨 뒤 근처에 번호 한 줄, 그
+            # 바로 다음에 저장된 연락처 이름 한 줄이 붙어 나온다. 뒤에서부터
+            # 훑어서 번호처럼 생긴 줄을 찾으면 그걸 진짜 발신자로 되찾고,
+            # 그 줄과(있으면) 바로 다음 이름 줄까지 본문에서 제외한다.
+            for i in range(len(body_lines) - 1, -1, -1):
+                if _PHONE_LIKE_RE.match(body_lines[i]):
+                    sender = body_lines[i]
+                    del body_lines[i:i + 2]
+                    break
+
         if not sender:
             return None
         if sender in _NOTIF_SELF_SENDER_LABELS:
-            return None  # 알림에서 직접 회신 입력 중인 과도기 상태 — 실제 수신 문자 아님
+            return None  # 번호를 되찾지 못했다 — 진짜 회신 입력 중 과도기로 보고 건너뜀
 
         return sender, "", body_lines, msg_time
     except Exception as e:
