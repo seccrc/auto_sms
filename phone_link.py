@@ -319,19 +319,32 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
     """번호로 기존 대화를 찾아 열거나, 없으면 '새 메시지'로 새 대화를 만든다.
     대화 목록 행의 접근성 이름이 "{번호}와의 대화 메시지 미리 보기 ..."로
     시작하므로, 그 접두어로 정확히 매칭해서 다른 대화의 미리보기 텍스트
-    안에 우연히 같은 숫자가 들어있어도 잘못 걸리지 않게 한다."""
+    안에 우연히 같은 숫자가 들어있어도 잘못 걸리지 않게 한다.
+
+    ⚠ 실제 행의 접근성 이름은 번호 앞뒤에 눈에 안 보이는 양방향 텍스트
+    제어문자(bidi, 예: "⁨010-2405-3466⁩")가 붙어있다(_clean_bidi()가
+    있는 이유와 동일). pywinauto의 title_re는 이 원본 텍스트에 그대로
+    매칭을 시도하므로, 정리 없이 "^번호..."로 앞에서부터 매칭하면
+    항상 실패한다 — 그러면 이미 대화가 있는 번호인데도 매번 "새 메시지"로
+    새로 시작하게 되는데, 그 경로가 번호 입력 확정이 불안정해서 실제로
+    받는 사람이 빈 채로 본문만 채워지는 사고로 이어진 적이 있다
+    (send_message() 설명 참고). 그래서 title_re에 맡기지 않고, 각 행을
+    직접 훑어 _clean_bidi()로 정리한 텍스트로 비교한다."""
     conv_list = win.child_window(**_CONVERSATION_LIST_CRITERIA)
-    for variant in _phone_variants(phone_number):
+    variants = _phone_variants(phone_number)
+    try:
+        rows = conv_list.descendants(control_type="ListItem")
+    except Exception:
+        rows = []
+    for row in rows:
         try:
-            row = conv_list.child_window(
-                title_re=rf"^{re.escape(variant)}와의 대화 메시지 미리 보기", control_type="ListItem"
-            )
-            if row.exists(timeout=2):
-                row.click_input()
-                time.sleep(1)
-                return
+            title = _clean_bidi(row.window_text() or row.element_info.name)
         except Exception:
             continue
+        if any(title.startswith(f"{v}와의 대화 메시지 미리 보기") for v in variants):
+            row.click_input()
+            time.sleep(1)
+            return
 
     # 기존 대화가 없으면 새 메시지 버튼으로 시작한다.
     btn = win.child_window(**_NEW_MESSAGE_BUTTON_CRITERIA)
