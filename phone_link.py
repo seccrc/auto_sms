@@ -368,7 +368,7 @@ def send_message(phone_number: str, body: str):
             minimize_window(win)
 
 
-def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int = 20,
+def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int = 20,
                         hide_after_start: bool = False, seen_bodies_by_phone: dict = None):
     """대화 목록 상위 max_conversations개를 주기적으로 훑어서, 마지막
     메시지 미리보기가 바뀐(=새 메시지가 온) 대화를 발견하면
@@ -433,7 +433,7 @@ def watch_new_messages(callback, poll_interval: int = 10, max_conversations: int
         time.sleep(poll_interval)
 
 
-def watch_notifications(callback, poll_interval: int = 10, max_items: int = 30,
+def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                          hide_after_start: bool = False, seen_lines_by_sender: dict = None):
     """홈 화면 "알림" 패널(NotificationsListScrollHost)을 주기적으로 훑어서
     새 문자 알림을 발견하면 (그 알림 카드에 새로 쌓인 줄마다 한 번씩)

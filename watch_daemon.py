@@ -19,7 +19,7 @@
 
 사용법:
     python app.py                         (다른 터미널/서비스로 먼저 띄워둠)
-    python watch_daemon.py                (기본: 알림 패널 감시, http://127.0.0.1:8060, 10초 간격, 병합 없음)
+    python watch_daemon.py                (기본: 알림 패널 감시, http://127.0.0.1:8060, 5초 간격, 병합 없음)
     python watch_daemon.py --source messages --server http://127.0.0.1:8060 --interval 15
     python watch_daemon.py --merge-window 20   (나눠 보낸 문자를 15~20초 정도 기다렸다 합침)
 """
@@ -149,7 +149,7 @@ def _load_recent_seen(server: str, limit: int = 300) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", default="http://127.0.0.1:8060")
-    parser.add_argument("--interval", type=int, default=10, help="감시 주기(초)")
+    parser.add_argument("--interval", type=int, default=5, help="감시 주기(초)")
     parser.add_argument(
         "--source", choices=["notifications", "messages"], default="notifications",
         help="notifications=알림 패널(Wi-Fi 불필요, 기본) / messages=대화 목록(Wi-Fi 필요, 본문 안 잘림)"
