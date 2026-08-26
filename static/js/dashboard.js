@@ -2,6 +2,7 @@ function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 
 let templatesCache = [];
 const STATUS_OPTIONS = ['접수', '부서전달', '담당자확인', '처리완료'];
+const MANUAL_INPUT_OPTIONS = ['', '행정종합관찰제', '종합민원이력시스템'];
 
 async function updateMessageStatus(id, status) {
     try {
@@ -159,7 +160,9 @@ function renderThreads() {
                    </select>`
                 : `<span class="status-pill st-${statusVal}">${esc(statusVal)}</span>`;
             const fieldsHtml = editing
-                ? `<input class="cell-input" data-id="${m.id}" data-field="manual_input" value="${esc(m.manual_input || '')}" placeholder="입력" onblur="saveMessageCell(this)">
+                ? `<select class="cell-input" data-id="${m.id}" data-field="manual_input" onchange="saveMessageCell(this)">
+                       ${MANUAL_INPUT_OPTIONS.map(o => `<option value="${esc(o)}" ${o === (m.manual_input || '') ? 'selected' : ''}>${o === '' ? '-' : esc(o)}</option>`).join('')}
+                   </select>
                    <input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" placeholder="접수번호" onblur="saveMessageCell(this)">`
                 : `<span>입력: ${esc(m.manual_input || '-')}</span><span>접수번호: ${esc(m.receipt_no || '-')}</span>`;
             controlsHtml = `<div class="controls">${statusCell}<div class="fields">${fieldsHtml}</div></div>`;
