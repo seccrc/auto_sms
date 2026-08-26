@@ -77,6 +77,7 @@ async function deleteTemplate(id) {
 // ── 민원 문자 목록 (스레드) ──
 let lastThreads = [];
 let editingRowId = null;  // 연필 아이콘으로 지금 수정 모드인 민원(수신 문자)의 id (한 번에 하나만)
+let selectedThreadIds = new Set();  // 체크박스로 골라서 병합 대상이 된 스레드(민원)의 id들
 
 async function loadMessages() {
     // 15초마다 자동 갱신되는데, 그 사이 직원이 입력/접수번호 칸에 뭔가
@@ -105,6 +106,48 @@ function toggleEditRow(id) {
 function toggleSendBox(idx) {
     document.getElementById(`sendBox-${idx}`).style.display = 'block';
     document.getElementById(`sendToggle-${idx}`).style.display = 'none';
+}
+
+// 같은 민원인이 시간차를 두고 다시 보내서 스레드가 갈라진 경우, 체크박스로
+// 여러 스레드를 골라뒀다가 한 번에 병합한다.
+function toggleThreadSelect(id, checked) {
+    if (checked) selectedThreadIds.add(id); else selectedThreadIds.delete(id);
+    updateMergeBar();
+}
+
+function clearThreadSelection() {
+    selectedThreadIds.clear();
+    renderThreads();
+}
+
+function updateMergeBar() {
+    const bar = document.getElementById('mergeBar');
+    const count = selectedThreadIds.size;
+    if (count === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    document.getElementById('mergeCount').textContent = `${count}개 선택됨`;
+    document.getElementById('mergeBtn').disabled = count < 2;
+}
+
+async function mergeSelectedThreads() {
+    const ids = Array.from(selectedThreadIds);
+    if (ids.length < 2) return;
+    if (!confirm(`선택한 ${ids.length}개 민원을 하나의 스레드로 합칠까요?`)) return;
+    try {
+        const r = await fetch('/api/threads/merge', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({complaint_ids: ids})
+        });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+            selectedThreadIds.clear();
+            loadMessages();
+        } else {
+            alert('병합 실패: ' + (d.error || '알 수 없는 오류'));
+        }
+    } catch (e) {
+        alert('오류: ' + e.message);
+    }
 }
 
 function onReplyTemplateChange(selectEl) {
@@ -142,6 +185,7 @@ function renderThreads() {
     const listEl = document.getElementById('threadList');
     if (!lastThreads.length) {
         listEl.innerHTML = '<div class="empty">아직 메시지가 없습니다</div>';
+        updateMergeBar();
         return;
     }
     const tplOptions = templatesCache.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('');
@@ -171,13 +215,16 @@ function renderThreads() {
 
         const repliesHtml = t.replies.map(rp => `
             <div class="reply">
-                <div class="reply-body">${esc(rp.body)}</div>
+                <div class="reply-body"><span class="pill ${rp.direction === 'in' ? 'pill-in' : 'pill-out'}">${rp.direction === 'in' ? '수신' : '발신'}</span>${esc(rp.body)}</div>
                 <div class="reply-time">${esc(rp.msg_time || rp.created_at || '')}</div>
             </div>`).join('');
+
+        const checked = selectedThreadIds.has(m.id) ? 'checked' : '';
 
         return `
             <div class="thread">
                 <div class="msg-row">
+                    <div class="select-col"><input type="checkbox" ${checked} onchange="toggleThreadSelect(${m.id}, this.checked)" title="병합할 스레드로 선택"></div>
                     <div class="meta">${esc(m.msg_time || m.created_at || '')}</div>
                     <div class="phone">${esc(m.phone_number)}</div>
                     <div class="name">${esc(m.contact_name || '-')}</div>
@@ -199,6 +246,7 @@ function renderThreads() {
                 </div>
             </div>`;
     }).join('');
+    updateMergeBar();
 }
 
 // 두 칸(입력/접수번호) 중 하나에서 포커스가 빠지면, 그 민원의 두 값을

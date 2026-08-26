@@ -47,10 +47,15 @@ def init_db():
 # 아니라 사람이 보고 판단해서 입력하는 값이라 전부 빈 문자열 기본값으로 둔다.
 # status(처리상태)는 미처리/처리중/처리완료 중 고르는 드롭다운 전용 컬럼이고,
 # manual_input(입력)/receipt_no(접수번호)는 자유 텍스트다.
+# thread_id는 같은 민원인이 시간차를 두고 다시 보내서 스레드가 갈라진 걸
+# 체크박스로 골라 수동으로 합칠 때 쓴다 — 기본은 NULL이고(스레드 묶음은
+# app.py의 _build_threads()가 번호+시간순으로 자동 계산), 병합된 메시지들만
+# 같은 값(합친 메시지 중 가장 작은 id)을 공유하게 된다.
 _MESSAGE_MANUAL_COLUMNS = {
-    "status":       "TEXT DEFAULT ''",  # 처리상태
-    "manual_input": "TEXT DEFAULT ''",  # 입력
-    "receipt_no":   "TEXT DEFAULT ''",  # 접수번호
+    "status":       "TEXT DEFAULT ''",   # 처리상태
+    "manual_input": "TEXT DEFAULT ''",   # 입력
+    "receipt_no":   "TEXT DEFAULT ''",   # 접수번호
+    "thread_id":    "INTEGER DEFAULT NULL",  # 수동 병합된 스레드 묶음 id
 }
 
 

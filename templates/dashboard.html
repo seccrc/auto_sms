@@ -81,10 +81,15 @@
 
   /* 민원 문자 목록 — 민원(수신) 한 건 + 그 아래 이어지는 답신(발신)들 */
   .msg-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 20px; overflow: hidden; }
-  .msg-card-head { padding: 18px 20px 6px; }
+  .msg-card-head { padding: 18px 20px 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .msg-card-head h2 { font-size: 14px; margin: 0; }
+  .merge-bar { display: none; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); }
+  .merge-bar button { padding: 5px 10px; font-size: 12px; }
+  .merge-bar .btn-primary:disabled { background: #9fb0e0; cursor: default; }
   .thread { border-top: 1px solid var(--line); }
-  .msg-row { display: grid; grid-template-columns: 84px 108px 84px 1fr 190px 34px; gap: 10px; align-items: start; padding: 12px 20px; }
+  .msg-row { display: grid; grid-template-columns: 22px 84px 108px 84px 1fr 190px 34px; gap: 10px; align-items: start; padding: 12px 20px; }
+  .select-col { display: flex; justify-content: center; padding-top: 2px; }
+  .select-col input { margin: 0; cursor: pointer; }
   .msg-row .meta { font-size: 12px; color: var(--ink-faint); white-space: nowrap; }
   .msg-row .phone { font-size: 12.5px; font-weight: 600; }
   .msg-row .name { font-size: 12px; color: var(--ink-soft); }
@@ -136,7 +141,14 @@
   </div>
 
   <div class="msg-card">
-    <div class="msg-card-head"><h2>📨 민원 문자 목록</h2></div>
+    <div class="msg-card-head">
+      <h2>📨 민원 문자 목록</h2>
+      <div class="merge-bar" id="mergeBar">
+        <span id="mergeCount"></span>
+        <button class="btn-primary" id="mergeBtn" onclick="mergeSelectedThreads()" disabled>선택한 민원 병합</button>
+        <button class="btn-ghost" onclick="clearThreadSelection()">선택 해제</button>
+      </div>
+    </div>
     <div id="threadList"><div class="empty">불러오는 중…</div></div>
   </div>
 </div>

@@ -29,9 +29,12 @@ def index():
 def _build_threads(rows: list) -> list:
     """민원(수신 문자) 한 건에 답신(발신 문자)이 여러 개 이어질 수 있어서,
     평평한 메시지 목록을 "민원 + 그 이후 답신들" 스레드 단위로 묶는다.
-    별도 컬럼/테이블로 연결을 저장하는 게 아니라, 같은 번호로 그 민원보다
+
+    thread_id가 찍혀 있는 메시지들(체크박스로 수동 병합된 것 — 아래
+    api_merge_threads() 참고)은 그 값이 같은 것끼리 무조건 한 스레드로
+    묶는다. 그게 아닌 메시지는 기존과 같이, 같은 번호로 그 민원보다
     나중에 온 발신 문자를 답신으로 간주하는 시간 순서 규칙으로 그때그때
-    계산한다 — 답신은 이제 화면의 "문자발송"이 항상 그 민원의 스레드
+    자동으로 묶는다 — 답신은 화면의 "문자발송"이 항상 그 민원의 스레드
     안에서만 나가므로 이 규칙으로 충분하다.
 
     번호에 아직 수신 문자가 없는데 발신 문자가 먼저 있는 경우(과거 데이터 등)는
@@ -42,9 +45,20 @@ def _build_threads(rows: list) -> list:
     "최근 메시지" 목록이 최근 활동을 보여주는 용도라 실용적으로 충분하다고
     보고, 정확성을 위해 전체 이력을 따로 조회하지는 않는다."""
     rows_asc = sorted(rows, key=lambda r: r["id"])
+    threads_by_manual_id = {}
     open_thread_by_phone = {}
     threads = []
     for r in rows_asc:
+        manual_tid = r.get("thread_id")
+        if manual_tid:
+            thread = threads_by_manual_id.get(manual_tid)
+            if thread is None:
+                thread = {"complaint": r, "replies": []}
+                threads_by_manual_id[manual_tid] = thread
+                threads.append(thread)
+            else:
+                thread["replies"].append(r)
+            continue
         phone = r["phone_number"]
         if r["direction"] == "in":
             thread = {"complaint": r, "replies": []}
@@ -145,6 +159,45 @@ def api_update_message(msg_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
+
+
+@app.route("/api/threads/merge", methods=["POST"])
+def api_merge_threads():
+    """같은 민원인이 시간차를 두고 다시 보내서 스레드가 갈라진 경우를 위한
+    기능 — 화면에서 체크박스로 고른 여러 스레드(각각의 민원 id로 식별)를
+    한 스레드로 합친다. 각 스레드에 이미 딸려 있는 답신들까지 포함해서
+    관련된 모든 메시지에 같은 thread_id를 매기면, 다음 조회부터
+    _build_threads()가 그 값으로 하나로 묶어서 보여준다.
+
+    thread_id는 합쳐지는 메시지들 중 가장 작은(가장 오래된) id를 그대로
+    쓴다 — 이미 한 번 병합된 스레드를 다른 스레드와 또 합치는 경우에도
+    _build_threads()가 기존 thread_id를 우선하므로 자동으로 같이 딸려온다."""
+    data = request.get_json(force=True, silent=True) or {}
+    complaint_ids = data.get("complaint_ids") or []
+    if not isinstance(complaint_ids, list) or len(complaint_ids) < 2:
+        return jsonify({"error": "병합하려면 스레드를 2개 이상 선택하세요"}), 400
+
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM messages ORDER BY id").fetchall()
+    threads = _build_threads([dict(r) for r in rows])
+
+    target_ids = set()
+    for t in threads:
+        if t["complaint"]["id"] in complaint_ids:
+            target_ids.add(t["complaint"]["id"])
+            target_ids.update(rp["id"] for rp in t["replies"])
+    if not target_ids:
+        conn.close()
+        return jsonify({"error": "선택한 스레드를 찾을 수 없습니다"}), 404
+
+    new_thread_id = min(target_ids)
+    conn.executemany(
+        "UPDATE messages SET thread_id=? WHERE id=?",
+        [(new_thread_id, mid) for mid in target_ids],
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "thread_id": new_thread_id})
 
 
 # ── 상용문구 ─────────────────────────────────────────────
