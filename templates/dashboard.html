@@ -58,12 +58,13 @@
   .btn-ghost { background: var(--accent-soft); color: var(--accent); }
   .btn-danger { background: #fbe4e1; color: var(--bad); }
   .tpl-item {
-    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
     padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px;
   }
   .tpl-item:last-child { border-bottom: none; }
   .tpl-title { font-weight: 600; }
   .tpl-body { color: var(--ink-soft); font-size: 12px; margin-top: 2px; white-space: pre-line; }
+  .tpl-actions { display: flex; gap: 6px; flex: 0 0 auto; }
   .tpl-actions button { padding: 4px 9px; font-size: 12px; }
   .pill { font-size: 11px; padding: 2px 7px; border-radius: 9px; font-weight: 600; }
   .pill-in { background: var(--accent-soft); color: var(--accent); }
