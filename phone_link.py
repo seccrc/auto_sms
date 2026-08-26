@@ -600,20 +600,26 @@ def _parse_notification_item(item) -> tuple:
         sender = ""
         msg_time = ""
         body_lines = []
-        # 카드 안에서 "나"/"{상대}" 소제목이 나올 때마다 그 아래 줄들이 누가
-        # 보낸 건지 바뀐다. 한때 이 소제목을 기준으로 "지금 보고 있는 줄이
-        # 우리가 보낸 구간인지"를 상태로 계속 추적해서 그 구간의 줄은 아예
-        # 본문 후보에서 뺐는데(우리가 보낸 답신이 수신 문자로 잘못 저장되는
-        # 사고를 막으려고), 실제로 상대방 쪽으로 되돌아왔다는 소제목이 항상
-        # 다시 나온다는 보장이 없었다 — 안 나오면 그 상태가 "우리 구간"에
-        # 계속 멈춰 있어서, 그 뒤로 오는 진짜 새 수신 문자까지 전부
+        # 카드 안에서 "나" 소제목이 나오면, 그 바로 다음에 오는 줄 "딱
+        # 하나"가 우리가 보낸 답신 본문이다(메시지 하나가 길어도 Text
+        # 컨트롤 하나로 통째로 들어오는 걸 실제로 확인했다 — 여러 줄로
+        # 쪼개지지 않는다). 그 한 줄만 건너뛰고 나면 바로 원래 상태로
+        # 돌아온다.
+        #
+        # 예전엔 "나"를 만나면 이후 계속 "우리 구간"이라는 상태로 남겨두고
+        # 상대방 소제목이 다시 나와야만 풀리게 했었는데, 그 상대방 소제목이
+        # 항상 다시 나온다는 보장이 없어서 — 한 번 우리가 답신을 보내고 나면
+        # 그 뒤로 오는 진짜 수신 문자까지 전부 "우리 구간"으로 착각해
         # 조용히 걸러지는(놓치는) 훨씬 더 나쁜 사고로 이어졌다(실제로
         # "같은 사람이 보낸 문자를 그 뒤로 계속 못 가져온다"는 증상으로
-        # 확인됨). 놓친 민원은 중복 저장보다 훨씬 나쁜 실패라서, 여기서는
-        # 소제목 그 줄 자체만 걸러내는 단순한 방식으로 되돌리고, 우리가
-        # 보낸 답신이 다시 섞여 들어올 위험은 app.py의 api_save_message()가
-        # "우리가 그 번호로 이미 보낸 문구와 똑같은지"를 서버에서 한 번 더
-        # 확인하는 안전망으로 대신 막는다.
+        # 확인됨). 지금 방식은 "나" 바로 다음 한 줄만 걸러내고 바로
+        # 리셋되므로 그 문제가 없다.
+        #
+        # 그래도 혹시 이 판단이 놓치는 경우(예: 답신이 정말로 여러 Text로
+        # 쪼개져 들어오는 경우)에 대비해, app.py의 api_save_message()가
+        # "우리가 그 번호로 이미 보낸 문구와 똑같은지"를 서버 기록으로 한 번
+        # 더 확인하는 안전망을 이중으로 두고 있다.
+        skip_next_line = False
         for text_el in item.descendants(control_type="Text"):
             try:
                 auto_id = text_el.element_info.automation_id
@@ -627,14 +633,20 @@ def _parse_notification_item(item) -> tuple:
             elif auto_id == _NOTIF_TIME_AUTO_ID:
                 msg_time = txt
             elif txt:
-                if txt in _NOTIF_SELF_SENDER_LABELS or txt == sender:
-                    continue  # 소제목 자체 — 본문 아님
+                if txt in _NOTIF_SELF_SENDER_LABELS:
+                    skip_next_line = True
+                    continue  # "나" 소제목 — 본문 아님, 바로 다음 한 줄이 우리가 보낸 본문
+                if txt == sender:
+                    continue  # 상대방 소제목 재등장 — 본문 아님
                 try:
                     parent_type = text_el.parent().element_info.control_type
                 except Exception:
                     parent_type = None
                 if parent_type == "Button" or txt in _NOTIF_BUTTON_LABELS:
                     continue  # 버튼 라벨(통화/읽음으로 표시 등) — 본문 아님
+                if skip_next_line:
+                    skip_next_line = False
+                    continue  # "나" 바로 다음 줄 = 우리가 보낸 답신 본문 — 수신 문자로 취급 안 함
                 body_lines.append(txt)
 
         if app_name != _NOTIF_SMS_APP_NAME:
