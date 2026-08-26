@@ -14,32 +14,50 @@ async function updateMessageStatus(id, status) {
 }
 
 // ── 상용문구 ──
+const TEMPLATES_COLLAPSED_COUNT = 3;  // 왼쪽 레일이 좁아서 기본은 3개만 보여주고 "더보기"로 펼친다
+let templatesExpanded = false;
+
 async function loadTemplates() {
     const listEl = document.getElementById('templateList');
     try {
         const r = await fetch('/api/templates');
         const d = await r.json();
         templatesCache = d.templates || [];
-        if (!templatesCache.length) {
-            listEl.innerHTML = '<div class="empty">등록된 상용문구가 없습니다</div>';
-        } else {
-            listEl.innerHTML = templatesCache.map(t => `
-                <div class="tpl-item">
-                    <div>
-                        <div class="tpl-title">${esc(t.title)}</div>
-                        <div class="tpl-body">${esc(t.body)}</div>
-                    </div>
-                    <div class="tpl-actions">
-                        <button class="btn-ghost" onclick="editTemplate(${t.id})">수정</button>
-                        <button class="btn-danger" onclick="deleteTemplate(${t.id})">삭제</button>
-                    </div>
-                </div>`).join('');
-        }
+        renderTemplateList();
         renderThreads(); // 상용문구 목록이 새로 로드되면 답신 상자의 문구 드롭다운도 갱신
         renderAutoReplyTemplateOptions();
     } catch (e) {
         listEl.innerHTML = '<div class="empty">불러오기 실패</div>';
     }
+}
+
+function toggleTemplatesExpanded() {
+    templatesExpanded = !templatesExpanded;
+    renderTemplateList();
+}
+
+function renderTemplateList() {
+    const listEl = document.getElementById('templateList');
+    if (!templatesCache.length) {
+        listEl.innerHTML = '<div class="empty">등록된 상용문구가 없습니다</div>';
+        return;
+    }
+    const shown = templatesExpanded ? templatesCache : templatesCache.slice(0, TEMPLATES_COLLAPSED_COUNT);
+    const itemsHtml = shown.map(t => `
+        <div class="tpl-item">
+            <div>
+                <div class="tpl-title">${esc(t.title)}</div>
+                <div class="tpl-body">${esc(t.body)}</div>
+            </div>
+            <div class="tpl-actions">
+                <button class="btn-ghost" onclick="editTemplate(${t.id})">수정</button>
+                <button class="btn-danger" onclick="deleteTemplate(${t.id})">삭제</button>
+            </div>
+        </div>`).join('');
+    const moreHtml = templatesCache.length > TEMPLATES_COLLAPSED_COUNT
+        ? `<button class="tpl-more" onclick="toggleTemplatesExpanded()">${templatesExpanded ? '접기' : `+ 전체보기 (총 ${templatesCache.length}개)`}</button>`
+        : '';
+    listEl.innerHTML = itemsHtml + moreHtml;
 }
 
 function editTemplate(id) {
@@ -118,6 +136,27 @@ let editingRowId = null;  // 연필 아이콘으로 지금 수정 모드인 민�
 let selectedThreadIds = new Set();  // 체크박스로 골라서 병합 대상이 된 스레드(민원)의 id들
 const THREADS_PER_PAGE = 10;
 let currentPage = 1;  // 15초 자동 갱신으로 목록이 다시 그려져도 보던 페이지를 유지한다
+
+// created_at은 서버가 "YYYY-MM-DD HH:MM:SS"(로컬시각)로 내려주므로 같은 형식으로 오늘 날짜를 만들어 앞부분만 비교한다
+function todayLocalDateStr() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function updateHeadStats() {
+    const today = todayLocalDateStr();
+    let todayCount = 0;
+    let pendingCount = 0;
+    for (const t of lastThreads) {
+        const m = t.complaint;
+        if (m.direction !== 'in') continue;  // 실제 민원(수신)만 집계 — 답신만 있는 orphan 스레드는 제외
+        if ((m.created_at || '').startsWith(today)) todayCount++;
+        if ((m.status || '접수') !== '처리완료') pendingCount++;
+    }
+    document.getElementById('statToday').textContent = `오늘 접수 ${todayCount}건`;
+    document.getElementById('statPending').textContent = `미처리 ${pendingCount}건`;
+}
 
 async function loadMessages() {
     // 15초마다 자동 갱신되는데, 그 사이 직원이 입력/접수번호 칸에 뭔가
@@ -244,6 +283,7 @@ function renderPagination(totalPages) {
 
 function renderThreads() {
     const listEl = document.getElementById('threadList');
+    updateHeadStats();
     if (!lastThreads.length) {
         listEl.innerHTML = '<div class="empty">아직 메시지가 없습니다</div>';
         updateMergeBar();

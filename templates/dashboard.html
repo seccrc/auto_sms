@@ -31,14 +31,18 @@
   }
   h1 { font-size: 19px; margin: 0 0 4px; }
   .sub { color: var(--ink-soft); font-size: 13px; margin: 0 0 24px; }
-  .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; align-items: start; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  /* 왼쪽 고정폭 사이드레일(설정류: 자동발송·상용문구) + 오른쪽 메인(민원 목록) */
+  .layout { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .rail { display: flex; flex-direction: column; gap: 20px; position: sticky; top: 20px; }
+  @media (max-width: 900px) { .rail { position: static; } }
+
   .card {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     padding: 18px 20px;
-    margin-bottom: 20px;
   }
   .card h2 { font-size: 14px; margin: 0 0 14px; color: var(--ink); }
   label { display: block; font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
@@ -66,6 +70,18 @@
   .tpl-body { color: var(--ink-soft); font-size: 12px; margin-top: 2px; white-space: pre-line; }
   .tpl-actions { display: flex; gap: 6px; flex: 0 0 auto; }
   .tpl-actions button { padding: 4px 9px; font-size: 12px; }
+  .tpl-more { font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; font-weight: 600; padding: 10px 0 0; width: 100%; text-align: left; }
+
+  /* 업무외 자동발송 — 토글 스위치 */
+  .status-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .status-toggle .switch { position: relative; width: 38px; height: 22px; flex: 0 0 auto; }
+  .status-toggle .switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+  .status-toggle .switch .track { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: background .15s; }
+  .status-toggle .switch .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 999px; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; pointer-events: none; }
+  .status-toggle .switch input:checked + .track { background: var(--good); }
+  .status-toggle .switch input:checked + .track + .knob { transform: translateX(16px); }
+  .toggle-label { font-size: 12.5px; color: var(--ink-soft); }
+  .schedule-note { font-size: 11.5px; color: var(--ink-faint); margin: 8px 0 14px; line-height: 1.6; }
   .pill { font-size: 11px; padding: 2px 7px; border-radius: 9px; font-weight: 600; }
   .pill-in { background: var(--accent-soft); color: var(--accent); }
   .pill-out { background: var(--good-soft); color: var(--good); }
@@ -82,9 +98,11 @@
   .icon-btn:hover { background: var(--accent-soft); }
 
   /* 민원 문자 목록 — 민원(수신) 한 건 + 그 아래 이어지는 답신(발신)들 */
-  .msg-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 20px; overflow: hidden; }
+  .msg-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   .msg-card-head { padding: 18px 20px 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .msg-card-head h2 { font-size: 14px; margin: 0; }
+  .head-stats { display: flex; gap: 8px; font-size: 11.5px; color: var(--ink-soft); }
+  .head-stats span { background: var(--paper); border-radius: 999px; padding: 3px 10px; font-variant-numeric: tabular-nums; }
   .merge-bar { display: none; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); }
   .merge-bar button { padding: 5px 10px; font-size: 12px; }
   .merge-bar .btn-primary:disabled { background: #9fb0e0; cursor: default; }
@@ -134,31 +152,37 @@
 <h1>📱 auto_sms</h1>
 <p class="sub">휴대폰과 연결 앱으로 수신한 문자를 자동 저장하고, 민원별로 답신을 이어서 발송합니다.</p>
 
-<div class="card">
-  <h2>🌙 업무외 자동발송</h2>
-  <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer;">
-    <input type="checkbox" id="autoReplyEnabled" onchange="saveAutoReplySettings()" style="margin:0;">
-    <span>평일 09:00~18:00 외 시간에 접수된 문자에 아래 상용문구를 자동 발송</span>
-  </label>
-  <select id="autoReplyTemplateSelect" onchange="saveAutoReplySettings()">
-    <option value="">— 자동발송할 상용문구 선택 —</option>
-  </select>
-  <div id="autoReplyStatus" style="font-size:12px;color:var(--ink-faint);"></div>
-</div>
+<div class="layout">
+  <div class="rail">
+    <div class="card">
+      <h2>🌙 업무외 자동발송</h2>
+      <div class="status-toggle">
+        <span class="toggle-label">평일 09:00~18:00 외 시간 자동 응답</span>
+        <label class="switch">
+          <input type="checkbox" id="autoReplyEnabled" onchange="saveAutoReplySettings()">
+          <span class="track"></span>
+          <span class="knob"></span>
+        </label>
+      </div>
+      <div id="autoReplyStatus" class="schedule-note"></div>
+      <select id="autoReplyTemplateSelect" onchange="saveAutoReplySettings()">
+        <option value="">— 자동발송할 상용문구 선택 —</option>
+      </select>
+    </div>
 
-<div class="grid">
-  <div class="card">
-    <h2>💬 상용문구 관리</h2>
-    <div id="templateList"><div class="empty">불러오는 중…</div></div>
-    <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
-      <input type="hidden" id="tplEditId">
-      <label>문구 제목</label>
-      <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
-      <label>문구 내용</label>
-      <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
-      <div class="row">
-        <button class="btn-primary" onclick="saveTemplate()">저장</button>
-        <button class="btn-ghost" onclick="resetTemplateForm()">새 문구로 초기화</button>
+    <div class="card">
+      <h2>💬 상용문구 관리</h2>
+      <div id="templateList"><div class="empty">불러오는 중…</div></div>
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+        <input type="hidden" id="tplEditId">
+        <label>문구 제목</label>
+        <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
+        <label>문구 내용</label>
+        <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
+        <div class="row">
+          <button class="btn-primary" onclick="saveTemplate()">저장</button>
+          <button class="btn-ghost" onclick="resetTemplateForm()">새 문구로 초기화</button>
+        </div>
       </div>
     </div>
   </div>
@@ -166,6 +190,10 @@
   <div class="msg-card">
     <div class="msg-card-head">
       <h2>📨 민원 문자 목록</h2>
+      <div class="head-stats" id="headStats">
+        <span id="statToday">오늘 접수 0건</span>
+        <span id="statPending">미처리 0건</span>
+      </div>
       <div class="merge-bar" id="mergeBar">
         <span id="mergeCount"></span>
         <button class="btn-primary" id="mergeBtn" onclick="mergeSelectedThreads()" disabled>선택한 민원 병합</button>
