@@ -134,13 +134,19 @@ def _load_recent_seen(server: str, limit: int = 300) -> dict:
     try:
         r = requests.get(f"{server}/api/messages", params={"limit": limit}, timeout=10)
         r.raise_for_status()
-        for m in r.json().get("messages", []):
-            if m.get("direction") != "in":
-                continue
-            already_seen = seen.setdefault(m["phone_number"], set())
-            for line in (m["body"] or "").split("\n"):
-                if line:
-                    already_seen.add(line)
+        # /api/messages는 평평한 목록이 아니라 스레드({"complaint": ..,
+        # "replies": [..]}) 단위로 내려온다 — 민원(complaint)과 그 안에 섞여
+        # 들어갈 수 있는 수신 문자(답신 사이에 다시 온 후속 민원 등)를 모두
+        # 훑어야 "이미 저장된 수신 문자"를 빠짐없이 기억한다.
+        for t in r.json().get("threads", []):
+            candidates = [t.get("complaint")] + (t.get("replies") or [])
+            for m in candidates:
+                if not m or m.get("direction") != "in":
+                    continue
+                already_seen = seen.setdefault(m["phone_number"], set())
+                for line in (m["body"] or "").split("\n"):
+                    if line:
+                        already_seen.add(line)
     except Exception as e:
         print(f"[경고] 기존 메시지를 불러오지 못해 중복 방지 없이 시작합니다: {e!r}")
     return seen
