@@ -674,6 +674,20 @@ def _parse_notification_item(item) -> tuple:
             elif auto_id == _NOTIF_TIME_AUTO_ID:
                 msg_time = txt
             elif txt:
+                # ⚠ 이 소비는 반드시 다른 판단보다 먼저 와야 한다 — 실제
+                # --dump로 확인해보니 "나" 바로 다음에 답신 본문 없이
+                # 상대방 소제목(sender와 같은 문자열)이 곧바로 다시 나오는
+                # 경우가 있었다. 예전엔 "txt == sender" 판단을 먼저 해서
+                # 그 경우 continue로 먼저 빠져나가 버리는 바람에
+                # skip_next_line이 리셋될 기회를 영영 못 얻었다 — 그러면
+                # 계속 True로 남아서 그 다음에 오는 "진짜" 수신 문자까지
+                # 조용히 삼켜버리는 사고로 이어졌다(같은 번호로 짧은
+                # 간격에 보낸 문자를 놓치는 증상으로 실제 확인됨). 그래서
+                # "나" 바로 다음 줄은 내용이 무엇이든(소제목이든 진짜
+                # 본문이든) 무조건 여기서 소비하고 즉시 리셋한다.
+                if skip_next_line:
+                    skip_next_line = False
+                    continue  # "나" 바로 다음 줄 = 우리가 보낸 답신 본문(또는 그 자리의 소제목) — 수신 문자로 취급 안 함
                 if txt in _NOTIF_SELF_SENDER_LABELS:
                     skip_next_line = True
                     continue  # "나" 소제목 — 본문 아님, 바로 다음 한 줄이 우리가 보낸 본문
@@ -685,9 +699,6 @@ def _parse_notification_item(item) -> tuple:
                     parent_type = None
                 if parent_type == "Button" or txt in _NOTIF_BUTTON_LABELS:
                     continue  # 버튼 라벨(통화/읽음으로 표시 등) — 본문 아님
-                if skip_next_line:
-                    skip_next_line = False
-                    continue  # "나" 바로 다음 줄 = 우리가 보낸 답신 본문 — 수신 문자로 취급 안 함
                 body_lines.append(txt)
 
         if app_name != _NOTIF_SMS_APP_NAME:
