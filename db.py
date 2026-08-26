@@ -37,8 +37,27 @@ def init_db():
             created_at  TEXT DEFAULT (datetime('now', 'localtime'))
         );
     """)
+    _migrate_message_columns(conn)
     conn.commit()
     conn.close()
+
+
+# 민원 문자 목록에서 직원이 직접 채워 넣는 칸들 — 워처/자동화가 채우는 값이
+# 아니라 사람이 보고 판단해서 입력하는 값이라 전부 빈 문자열 기본값으로 둔다.
+_MESSAGE_MANUAL_COLUMNS = {
+    "manual_input":  "TEXT DEFAULT ''",  # 입력
+    "manual_status": "TEXT DEFAULT ''",  # 처리
+    "receipt_no":    "TEXT DEFAULT ''",  # 접수번호
+}
+
+
+def _migrate_message_columns(conn):
+    """CREATE TABLE IF NOT EXISTS만으론 기존에 이미 있던 messages 테이블에
+    새 컬럼이 추가되지 않으므로 별도로 확인해서 붙인다."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+    for col, col_type in _MESSAGE_MANUAL_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE messages ADD COLUMN {col} {col_type}")
 
 
 def make_dedup_key(phone_number: str, body: str, msg_time: str) -> str:

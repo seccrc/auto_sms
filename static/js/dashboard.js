@@ -128,12 +128,16 @@ async function sendSms() {
 // ── 최근 메시지 ──
 async function loadMessages() {
     const body = document.getElementById('msgTableBody');
+    // 15초마다 자동 갱신되는데, 그 사이 직원이 입력/처리/접수번호 칸에 뭔가
+    // 타이핑 중이면 통째로 다시 그리면서 입력 중인 내용이 날아가버린다 —
+    // 그 칸에 포커스가 있는 동안은 이번 갱신을 건너뛴다.
+    if (document.activeElement && document.activeElement.classList.contains('cell-input')) return;
     try {
         const r = await fetch('/api/messages?limit=100');
         const d = await r.json();
         const msgs = d.messages || [];
         if (!msgs.length) {
-            body.innerHTML = '<tr><td colspan="5" class="empty">아직 메시지가 없습니다</td></tr>';
+            body.innerHTML = '<tr><td colspan="8" class="empty">아직 메시지가 없습니다</td></tr>';
             return;
         }
         body.innerHTML = msgs.map(m => `
@@ -143,10 +147,37 @@ async function loadMessages() {
                 <td>${esc(m.contact_name || '')}</td>
                 <td class="msg-body">${esc(m.body)}</td>
                 <td>${esc(m.msg_time || m.created_at || '')}</td>
+                <td><input class="cell-input" data-id="${m.id}" data-field="manual_input" value="${esc(m.manual_input || '')}" onblur="saveMessageCell(this)"></td>
+                <td><input class="cell-input" data-id="${m.id}" data-field="manual_status" value="${esc(m.manual_status || '')}" onblur="saveMessageCell(this)"></td>
+                <td><input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" onblur="saveMessageCell(this)"></td>
             </tr>`).join('');
     } catch (e) {
-        body.innerHTML = '<tr><td colspan="5" class="empty">불러오기 실패</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" class="empty">불러오기 실패</td></tr>';
     }
+}
+
+// 세 칸(입력/처리/접수번호) 중 하나에서 포커스가 빠지면, 그 행의 세 값을
+// 한꺼번에 저장한다 — 서버가 세 컬럼을 통째로 덮어쓰는 방식이라(app.py 참고)
+// 하나만 보내면 나머지 두 칸이 빈 값으로 지워지기 때문에 항상 같이 보낸다.
+async function saveMessageCell(input) {
+    const id = input.dataset.id;
+    const row = input.closest('tr');
+    const get = field => row.querySelector(`[data-field="${field}"]`).value.trim();
+    try {
+        const r = await fetch(`/api/messages/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                manual_input: get('manual_input'),
+                manual_status: get('manual_status'),
+                receipt_no: get('receipt_no'),
+            }),
+        });
+        if (r.ok) {
+            input.classList.add('saved');
+            setTimeout(() => input.classList.remove('saved'), 800);
+        }
+    } catch (e) {}
 }
 
 loadContacts();

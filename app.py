@@ -70,6 +70,32 @@ def api_save_message():
     return jsonify({"ok": True, "inserted": inserted})
 
 
+@app.route("/api/messages/<int:msg_id>", methods=["PUT"])
+def api_update_message(msg_id):
+    """민원 문자 목록에서 직원이 직접 채워 넣는 입력/처리/접수번호를 저장한다.
+    셋 다 자유 텍스트라 값 검증은 안 하고, 빈 문자열로 지우는 것도 그대로
+    허용한다. 화면(dashboard.js)이 한 칸만 바뀌어도 그 행의 세 값을 항상
+    같이 보내므로, 여기서도 세 컬럼을 한 번에 덮어쓴다 — 하나만 받으면
+    나머지 두 칸이 빈 값으로 덮어써질 위험이 있어 일부러 이렇게 맞췄다."""
+    data = request.get_json(force=True, silent=True) or {}
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM messages WHERE id=?", (msg_id,)).fetchone():
+        conn.close()
+        return jsonify({"error": "메시지를 찾을 수 없습니다"}), 404
+    conn.execute(
+        "UPDATE messages SET manual_input=?, manual_status=?, receipt_no=? WHERE id=?",
+        (
+            (data.get("manual_input") or "").strip(),
+            (data.get("manual_status") or "").strip(),
+            (data.get("receipt_no") or "").strip(),
+            msg_id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/contacts", methods=["GET"])
 def api_list_contacts():
     """상용문구 발송 대상 드롭다운용 — 번호별로 가장 최근 메시지 시각/이름을
