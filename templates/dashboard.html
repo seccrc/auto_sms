@@ -15,7 +15,10 @@
     --accent: #2148c0;
     --accent-soft: #e8edfb;
     --good: #157f5a;
+    --good-soft: #e5f4ee;
     --bad: #c0392b;
+    --mark: #b5860c;
+    --mark-soft: #faf1d6;
     --radius: 12px;
   }
   * { box-sizing: border-box; }
@@ -62,87 +65,79 @@
   .tpl-title { font-weight: 600; }
   .tpl-body { color: var(--ink-soft); font-size: 12px; margin-top: 2px; white-space: pre-line; }
   .tpl-actions button { padding: 4px 9px; font-size: 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
-  td.msg-body { white-space: pre-line; }
-  td select { width: auto; margin-bottom: 0; padding: 4px 6px; font-size: 12px; }
-  th { color: var(--ink-soft); font-weight: 600; }
   .pill { font-size: 11px; padding: 2px 7px; border-radius: 9px; font-weight: 600; }
   .pill-in { background: var(--accent-soft); color: var(--accent); }
-  .pill-out { background: #e5f4ee; color: var(--good); }
-  .pill-bad { background: #fbe4e1; color: var(--bad); }
-  .pill-muted { background: var(--paper); color: var(--ink-faint); }
-  .empty { color: var(--ink-faint); font-size: 13px; padding: 10px 0; }
+  .pill-out { background: var(--good-soft); color: var(--good); }
+  .empty { color: var(--ink-faint); font-size: 13px; padding: 10px 20px; }
   .cell-input {
-    width: 100px; padding: 5px 7px; margin: 0; border: 1px solid var(--line); border-radius: 6px;
-    font-family: inherit; font-size: 12px; background: #fff; color: var(--ink);
+    width: 100%; padding: 5px 7px; margin: 0; border: 1px solid var(--line); border-radius: 6px;
+    font-family: inherit; font-size: 11.5px; background: #fff; color: var(--ink);
   }
   .cell-input.saved { border-color: var(--good); }
   .icon-btn {
     background: none; border: none; padding: 2px 6px; font-size: 14px; cursor: pointer; border-radius: 6px;
   }
   .icon-btn:hover { background: var(--accent-soft); }
-  #sendStatus { font-size: 12.5px; margin-top: 4px; }
-  #sendStatus.ok { color: var(--good); }
-  #sendStatus.err { color: var(--bad); }
+
+  /* 민원 문자 목록 — 민원(수신) 한 건 + 그 아래 이어지는 답신(발신)들 */
+  .msg-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 20px; overflow: hidden; }
+  .msg-card-head { padding: 18px 20px 6px; }
+  .msg-card-head h2 { font-size: 14px; margin: 0; }
+  .thread { border-top: 1px solid var(--line); }
+  .msg-row { display: grid; grid-template-columns: 84px 108px 84px 1fr 190px 34px; gap: 10px; align-items: start; padding: 12px 20px; }
+  .msg-row .meta { font-size: 12px; color: var(--ink-faint); white-space: nowrap; }
+  .msg-row .phone { font-size: 12.5px; font-weight: 600; }
+  .msg-row .name { font-size: 12px; color: var(--ink-soft); }
+  .msg-body { font-size: 13px; line-height: 1.55; white-space: pre-line; }
+  .msg-body .pill { margin-right: 6px; }
+  .controls { display: flex; flex-direction: column; gap: 6px; }
+  .controls select { width: auto; margin-bottom: 0; font-family: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
+  .controls .fields { display: flex; gap: 6px; font-size: 11.5px; color: var(--ink-soft); }
+  .controls .fields span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .edit-col { display: flex; justify-content: center; padding-top: 2px; }
+  .replies { padding: 0 20px 10px 20px; }
+  .reply { display: flex; gap: 10px; padding: 7px 0 7px 26px; border-left: 2px solid var(--line); margin-left: 6px; position: relative; }
+  .reply::before { content: ''; position: absolute; left: -5px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+  .reply-body { font-size: 12.5px; color: var(--ink-soft); flex: 1; line-height: 1.5; }
+  .reply-time { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+  .toggle-send { font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; font-weight: 600; margin: 0 0 10px 26px; padding: 4px 0; }
+  .send-box { margin: 0 20px 14px 26px; padding: 10px 12px; background: var(--paper); border: 1px dashed var(--line); border-radius: 8px; }
+  .send-box .row { display: flex; gap: 8px; }
+  .send-box select { flex: 0 0 auto; width: auto; margin-bottom: 0; font-family: inherit; font-size: 12px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .send-box textarea { flex: 1; margin-bottom: 0; font-family: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; resize: vertical; min-height: 34px; }
+  .send-box button { padding: 0 14px; }
+  .status-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+  .st-접수 { background: var(--accent-soft); color: var(--accent); }
+  .st-부서전달 { background: var(--mark-soft); color: var(--mark); }
+  .st-담당자확인 { background: #f1eafa; color: #6d3fa0; }
+  .st-처리완료 { background: var(--good-soft); color: var(--good); }
 </style>
 </head>
 <body>
 
 <h1>📱 auto_sms</h1>
-<p class="sub">휴대폰과 연결 앱으로 수신한 문자를 자동 저장하고, 상용문구로 원클릭 발송합니다.</p>
+<p class="sub">휴대폰과 연결 앱으로 수신한 문자를 자동 저장하고, 민원별로 답신을 이어서 발송합니다.</p>
 
 <div class="grid">
-  <div>
-    <div class="card">
-      <h2>✉️ 상용문구 발송</h2>
-      <label>수신자</label>
-      <select id="sendPhoneSelect" onchange="onRecipientChange()">
-        <option value="">— 최근 대화 상대에서 선택 —</option>
-      </select>
-      <input type="text" id="sendPhoneInput" placeholder="또는 번호 직접 입력 (예: 010-1234-5678)">
-
-      <label>상용문구</label>
-      <select id="sendTemplateSelect" onchange="onTemplateChange()">
-        <option value="">— 문구 선택 (또는 아래 직접 입력) —</option>
-      </select>
-
-      <label>내용</label>
-      <textarea id="sendBodyInput" placeholder="발송할 문자 내용"></textarea>
-
-      <button class="btn-primary" id="sendBtn" onclick="sendSms()">발송</button>
-      <div id="sendStatus"></div>
-    </div>
-
-    <div class="card">
-      <h2>💬 상용문구 관리</h2>
-      <div id="templateList"><div class="empty">불러오는 중…</div></div>
-      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
-        <input type="hidden" id="tplEditId">
-        <label>문구 제목</label>
-        <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
-        <label>문구 내용</label>
-        <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
-        <div class="row">
-          <button class="btn-primary" onclick="saveTemplate()">저장</button>
-          <button class="btn-ghost" onclick="resetTemplateForm()">새 문구로 초기화</button>
-        </div>
+  <div class="card">
+    <h2>💬 상용문구 관리</h2>
+    <div id="templateList"><div class="empty">불러오는 중…</div></div>
+    <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+      <input type="hidden" id="tplEditId">
+      <label>문구 제목</label>
+      <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
+      <label>문구 내용</label>
+      <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
+      <div class="row">
+        <button class="btn-primary" onclick="saveTemplate()">저장</button>
+        <button class="btn-ghost" onclick="resetTemplateForm()">새 문구로 초기화</button>
       </div>
     </div>
   </div>
 
-  <div class="card">
-    <h2>📨 최근 메시지</h2>
-    <div style="overflow-x:auto;">
-      <table>
-        <thead>
-          <tr><th>구분</th><th>번호</th><th>이름</th><th>내용</th><th>시각</th><th>처리상태</th><th>입력</th><th>접수번호</th><th>답신여부</th><th>수정</th></tr>
-        </thead>
-        <tbody id="msgTableBody">
-          <tr><td colspan="10" class="empty">불러오는 중…</td></tr>
-        </tbody>
-      </table>
-    </div>
+  <div class="msg-card">
+    <div class="msg-card-head"><h2>📨 민원 문자 목록</h2></div>
+    <div id="threadList"><div class="empty">불러오는 중…</div></div>
   </div>
 </div>
 

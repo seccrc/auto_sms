@@ -1,8 +1,7 @@
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 let templatesCache = [];
-const STATUS_OPTIONS = ['', '처리중', '처리완료'];
-const STATUS_LABELS = { '': '미처리', '처리중': '처리중', '처리완료': '처리완료' };
+const STATUS_OPTIONS = ['접수', '부서전달', '담당자확인', '처리완료'];
 
 async function updateMessageStatus(id, status) {
     try {
@@ -13,28 +12,9 @@ async function updateMessageStatus(id, status) {
     } catch (e) {}
 }
 
-// ── 최근 대화 상대 (수신자 드롭다운) ──
-async function loadContacts() {
-    const sel = document.getElementById('sendPhoneSelect');
-    try {
-        const r = await fetch('/api/contacts');
-        const d = await r.json();
-        sel.innerHTML = '<option value="">— 최근 대화 상대에서 선택 —</option>' +
-            (d.contacts || []).map(c =>
-                `<option value="${esc(c.phone_number)}">${esc(c.contact_name || c.phone_number)} (${esc(c.phone_number)})</option>`
-            ).join('');
-    } catch (e) {}
-}
-
-function onRecipientChange() {
-    const sel = document.getElementById('sendPhoneSelect');
-    if (sel.value) document.getElementById('sendPhoneInput').value = sel.value;
-}
-
 // ── 상용문구 ──
 async function loadTemplates() {
     const listEl = document.getElementById('templateList');
-    const sel = document.getElementById('sendTemplateSelect');
     try {
         const r = await fetch('/api/templates');
         const d = await r.json();
@@ -54,17 +34,10 @@ async function loadTemplates() {
                     </div>
                 </div>`).join('');
         }
-        sel.innerHTML = '<option value="">— 문구 선택 (또는 아래 직접 입력) —</option>' +
-            templatesCache.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('');
+        renderThreads(); // 상용문구 목록이 새로 로드되면 답신 상자의 문구 드롭다운도 갱신
     } catch (e) {
         listEl.innerHTML = '<div class="empty">불러오기 실패</div>';
     }
-}
-
-function onTemplateChange() {
-    const sel = document.getElementById('sendTemplateSelect');
-    const t = templatesCache.find(t => String(t.id) === sel.value);
-    if (t) document.getElementById('sendBodyInput').value = t.body;
 }
 
 function editTemplate(id) {
@@ -100,19 +73,51 @@ async function deleteTemplate(id) {
     loadTemplates();
 }
 
-// ── 발송 ──
-async function sendSms() {
-    const phone = (document.getElementById('sendPhoneInput').value ||
-                   document.getElementById('sendPhoneSelect').value).trim();
-    const body = document.getElementById('sendBodyInput').value.trim();
-    const statusEl = document.getElementById('sendStatus');
-    const btn = document.getElementById('sendBtn');
-    if (!phone) { statusEl.textContent = '수신 번호를 선택하거나 입력하세요'; statusEl.className = 'err'; return; }
-    if (!body) { statusEl.textContent = '보낼 내용을 입력하세요'; statusEl.className = 'err'; return; }
+// ── 민원 문자 목록 (스레드) ──
+let lastThreads = [];
+let editingRowId = null;  // 연필 아이콘으로 지금 수정 모드인 민원(수신 문자)의 id (한 번에 하나만)
 
+async function loadMessages() {
+    // 15초마다 자동 갱신되는데, 그 사이 직원이 입력/접수번호 칸에 뭔가
+    // 타이핑 중이거나 답신 상자에 내용을 쓰는 중이면 통째로 다시 그리면서
+    // 입력 중인 내용이 날아가버린다 — 그 동안은 이번 갱신을 건너뛴다.
+    const a = document.activeElement;
+    if (a && (a.classList.contains('cell-input') || a.closest('.send-box'))) return;
+    const listEl = document.getElementById('threadList');
+    try {
+        const r = await fetch('/api/messages?limit=100');
+        const d = await r.json();
+        lastThreads = d.threads || [];
+        renderThreads();
+    } catch (e) {
+        listEl.innerHTML = '<div class="empty">불러오기 실패</div>';
+    }
+}
+
+// 연필 아이콘을 누르면 그 민원만 수정 모드(입력창)로 바뀐다 — 매번 다시
+// 서버에서 받아올 필요 없이 방금 받아온 목록(lastThreads)으로 다시 그린다.
+function toggleEditRow(id) {
+    editingRowId = (editingRowId === id) ? null : id;
+    renderThreads();
+}
+
+function toggleSendBox(idx) {
+    document.getElementById(`sendBox-${idx}`).style.display = 'block';
+    document.getElementById(`sendToggle-${idx}`).style.display = 'none';
+}
+
+function onReplyTemplateChange(selectEl) {
+    const ta = selectEl.closest('.send-box').querySelector('textarea');
+    const t = templatesCache.find(t => String(t.id) === selectEl.value);
+    if (t) ta.value = t.body;
+}
+
+async function sendReply(phone, btn) {
+    const box = btn.closest('.send-box');
+    const ta = box.querySelector('textarea');
+    const body = ta.value.trim();
+    if (!body) { alert('보낼 내용을 입력하세요'); return; }
     btn.disabled = true;
-    statusEl.textContent = '발송 중…';
-    statusEl.className = '';
     try {
         const r = await fetch('/api/send', {
             method: 'POST', headers: {'Content-Type':'application/json'},
@@ -120,94 +125,86 @@ async function sendSms() {
         });
         const d = await r.json();
         if (r.ok && d.ok) {
-            statusEl.textContent = '발송 완료';
-            statusEl.className = 'ok';
+            ta.value = '';
             loadMessages();
-            loadContacts();
         } else {
-            statusEl.textContent = '실패: ' + (d.error || '알 수 없는 오류');
-            statusEl.className = 'err';
+            alert('발송 실패: ' + (d.error || '알 수 없는 오류'));
         }
     } catch (e) {
-        statusEl.textContent = '오류: ' + e.message;
-        statusEl.className = 'err';
+        alert('오류: ' + e.message);
     } finally {
         btn.disabled = false;
     }
 }
 
-// ── 최근 메시지 ──
-let lastMessages = [];
-let editingRowId = null;  // 연필 아이콘으로 지금 수정 모드인 행의 메시지 id (한 번에 하나만)
-
-async function loadMessages() {
-    // 15초마다 자동 갱신되는데, 그 사이 직원이 입력/접수번호 칸에 뭔가
-    // 타이핑 중이면 통째로 다시 그리면서 입력 중인 내용이 날아가버린다 —
-    // 그 칸에 포커스가 있는 동안은 이번 갱신을 건너뛴다.
-    if (document.activeElement && document.activeElement.classList.contains('cell-input')) return;
-    const body = document.getElementById('msgTableBody');
-    try {
-        const r = await fetch('/api/messages?limit=100');
-        const d = await r.json();
-        lastMessages = d.messages || [];
-        renderMessages();
-    } catch (e) {
-        body.innerHTML = '<tr><td colspan="10" class="empty">불러오기 실패</td></tr>';
-    }
-}
-
-// 연필 아이콘을 누르면 그 행만 수정 모드(입력창)로 바뀐다 — 매번 다시
-// 서버에서 받아올 필요 없이 방금 받아온 목록(lastMessages)으로 다시 그린다.
-function toggleEditRow(id) {
-    editingRowId = (editingRowId === id) ? null : id;
-    renderMessages();
-}
-
-function renderMessages() {
-    const body = document.getElementById('msgTableBody');
-    if (!lastMessages.length) {
-        body.innerHTML = '<tr><td colspan="10" class="empty">아직 메시지가 없습니다</td></tr>';
+function renderThreads() {
+    const listEl = document.getElementById('threadList');
+    if (!lastThreads.length) {
+        listEl.innerHTML = '<div class="empty">아직 메시지가 없습니다</div>';
         return;
     }
-    body.innerHTML = lastMessages.map(m => {
+    const tplOptions = templatesCache.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('');
+    listEl.innerHTML = lastThreads.map((t, idx) => {
+        const m = t.complaint;
+        const isComplaint = m.direction === 'in';
         const editing = editingRowId === m.id;
-        const statusCell = editing
-            ? `<select onchange="updateMessageStatus(${m.id}, this.value)">
-                   ${STATUS_OPTIONS.map(s => `<option value="${esc(s)}" ${s === (m.status || '') ? 'selected' : ''}>${esc(STATUS_LABELS[s])}</option>`).join('')}
-               </select>`
-            : `<span class="pill ${m.status === '처리완료' ? 'pill-out' : (m.status === '처리중' ? 'pill-in' : 'pill-muted')}">${esc(STATUS_LABELS[m.status || ''])}</span>`;
-        const inputCell = editing
-            ? `<input class="cell-input" data-id="${m.id}" data-field="manual_input" value="${esc(m.manual_input || '')}" onblur="saveMessageCell(this)">`
-            : esc(m.manual_input || '-');
-        const receiptCell = editing
-            ? `<input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" onblur="saveMessageCell(this)">`
-            : esc(m.receipt_no || '-');
-        const repliedCell = m.replied === null
-            ? '-'
-            : `<span class="pill ${m.replied ? 'pill-out' : 'pill-bad'}">${m.replied ? '답신함' : '답신안함'}</span>`;
+
+        let controlsHtml = '';
+        let editBtnHtml = '';
+        if (isComplaint) {
+            const statusVal = m.status || '접수';
+            const statusCell = editing
+                ? `<select onchange="updateMessageStatus(${m.id}, this.value)">
+                       ${STATUS_OPTIONS.map(s => `<option value="${esc(s)}" ${s === statusVal ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+                   </select>`
+                : `<span class="status-pill st-${statusVal}">${esc(statusVal)}</span>`;
+            const fieldsHtml = editing
+                ? `<input class="cell-input" data-id="${m.id}" data-field="manual_input" value="${esc(m.manual_input || '')}" placeholder="입력" onblur="saveMessageCell(this)">
+                   <input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" placeholder="접수번호" onblur="saveMessageCell(this)">`
+                : `<span>입력: ${esc(m.manual_input || '-')}</span><span>접수번호: ${esc(m.receipt_no || '-')}</span>`;
+            controlsHtml = `<div class="controls">${statusCell}<div class="fields">${fieldsHtml}</div></div>`;
+            editBtnHtml = `<button class="icon-btn" onclick="toggleEditRow(${m.id})" title="${editing ? '수정 완료' : '수정'}">${editing ? '✓' : '✏️'}</button>`;
+        }
+
+        const repliesHtml = t.replies.map(rp => `
+            <div class="reply">
+                <div class="reply-body">${esc(rp.body)}</div>
+                <div class="reply-time">${esc(rp.msg_time || rp.created_at || '')}</div>
+            </div>`).join('');
+
         return `
-            <tr>
-                <td><span class="pill ${m.direction === 'in' ? 'pill-in' : 'pill-out'}">${m.direction === 'in' ? '수신' : '발신'}</span></td>
-                <td>${esc(m.phone_number)}</td>
-                <td>${esc(m.contact_name || '')}</td>
-                <td class="msg-body">${esc(m.body)}</td>
-                <td>${esc(m.msg_time || m.created_at || '')}</td>
-                <td>${statusCell}</td>
-                <td>${inputCell}</td>
-                <td>${receiptCell}</td>
-                <td>${repliedCell}</td>
-                <td><button class="icon-btn" onclick="toggleEditRow(${m.id})" title="${editing ? '수정 완료' : '수정'}">${editing ? '✓' : '✏️'}</button></td>
-            </tr>`;
+            <div class="thread">
+                <div class="msg-row">
+                    <div class="meta">${esc(m.msg_time || m.created_at || '')}</div>
+                    <div class="phone">${esc(m.phone_number)}</div>
+                    <div class="name">${esc(m.contact_name || '-')}</div>
+                    <div class="msg-body"><span class="pill ${isComplaint ? 'pill-in' : 'pill-out'}">${isComplaint ? '수신' : '발신'}</span>${esc(m.body)}</div>
+                    <div>${controlsHtml}</div>
+                    <div class="edit-col">${editBtnHtml}</div>
+                </div>
+                <div class="replies">${repliesHtml}</div>
+                <button class="toggle-send" id="sendToggle-${idx}" onclick="toggleSendBox(${idx})">+ 문자발송</button>
+                <div class="send-box" id="sendBox-${idx}" style="display:none;">
+                    <div class="row">
+                        <select onchange="onReplyTemplateChange(this)">
+                            <option value="">— 상용문구 —</option>
+                            ${tplOptions}
+                        </select>
+                        <textarea placeholder="보낼 내용"></textarea>
+                        <button class="btn-primary" onclick="sendReply('${esc(m.phone_number)}', this)">발송</button>
+                    </div>
+                </div>
+            </div>`;
     }).join('');
 }
 
-// 두 칸(입력/접수번호) 중 하나에서 포커스가 빠지면, 그 행의 두 값을
+// 두 칸(입력/접수번호) 중 하나에서 포커스가 빠지면, 그 민원의 두 값을
 // 한꺼번에 저장한다 — 서버가 두 컬럼을 통째로 덮어쓰는 방식이라(app.py 참고)
 // 하나만 보내면 나머지 한 칸이 빈 값으로 지워지기 때문에 항상 같이 보낸다.
 // 처리상태는 이 함수가 아니라 updateMessageStatus()가 따로 관리한다.
 async function saveMessageCell(input) {
     const id = input.dataset.id;
-    const row = input.closest('tr');
+    const row = input.closest('.msg-row');
     const get = field => row.querySelector(`[data-field="${field}"]`).value.trim();
     try {
         const r = await fetch(`/api/messages/${id}`, {
@@ -225,8 +222,6 @@ async function saveMessageCell(input) {
     } catch (e) {}
 }
 
-loadContacts();
 loadTemplates();
 loadMessages();
 setInterval(loadMessages, 15000);   // 워처가 새로 저장한 수신 문자를 화면에 자동 반영
-setInterval(loadContacts, 30000);

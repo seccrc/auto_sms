@@ -23,27 +23,40 @@ def index():
     return render_template("dashboard.html")
 
 
-def _annotate_replied(rows: list) -> list:
-    """수신 문자(direction='in')마다 "답신여부"를 매긴다 — 별도 컬럼이 아니라,
-    같은 번호로 그 문자보다 나중에(같은 시각 포함) 보낸 발신 문자가
-    지금 가져온 목록 안에 있는지로 그때그때 계산한다. 발신 문자에는
-    적용될 개념이 아니라 replied=None으로 둔다.
+def _build_threads(rows: list) -> list:
+    """민원(수신 문자) 한 건에 답신(발신 문자)이 여러 개 이어질 수 있어서,
+    평평한 메시지 목록을 "민원 + 그 이후 답신들" 스레드 단위로 묶는다.
+    별도 컬럼/테이블로 연결을 저장하는 게 아니라, 같은 번호로 그 민원보다
+    나중에 온 발신 문자를 답신으로 간주하는 시간 순서 규칙으로 그때그때
+    계산한다 — 답신은 이제 화면의 "문자발송"이 항상 그 민원의 스레드
+    안에서만 나가므로 이 규칙으로 충분하다.
 
-    limit으로 잘린 목록 범위 안에서만 판단하므로, 아주 오래전에 받은
-    문자의 답신이 지금 화면에 안 보이는 범위에 있으면 "답신안함"으로
-    보일 수 있다 — "최근 메시지" 목록이 최근 활동을 보여주는 용도라
-    실용적으로 충분하다고 보고, 정확성을 위해 전체 이력을 따로
-    조회하지는 않는다."""
-    out_times = {}
-    for r in rows:
-        if r["direction"] == "out":
-            out_times.setdefault(r["phone_number"], []).append(r["created_at"] or "")
-    for r in rows:
+    번호에 아직 수신 문자가 없는데 발신 문자가 먼저 있는 경우(과거 데이터 등)는
+    그 발신 문자 자체를 스레드의 머리글로 두고 답신 컨트롤 없이 보여준다.
+
+    limit으로 잘린 목록 범위 안에서만 묶으므로, 아주 오래된 민원의 답신이
+    지금 화면에 안 보이는 범위에 있으면 별도 스레드로 갈라져 보일 수 있다 —
+    "최근 메시지" 목록이 최근 활동을 보여주는 용도라 실용적으로 충분하다고
+    보고, 정확성을 위해 전체 이력을 따로 조회하지는 않는다."""
+    rows_asc = sorted(rows, key=lambda r: r["id"])
+    open_thread_by_phone = {}
+    threads = []
+    for r in rows_asc:
+        phone = r["phone_number"]
         if r["direction"] == "in":
-            r["replied"] = any(t >= (r["created_at"] or "") for t in out_times.get(r["phone_number"], []))
+            thread = {"complaint": r, "replies": []}
+            threads.append(thread)
+            open_thread_by_phone[phone] = thread
         else:
-            r["replied"] = None
-    return rows
+            thread = open_thread_by_phone.get(phone)
+            if thread is None:
+                thread = {"complaint": r, "replies": []}
+                threads.append(thread)
+                open_thread_by_phone[phone] = thread
+            else:
+                thread["replies"].append(r)
+    threads.reverse()
+    return threads
 
 
 # ── 수신 메시지 ──────────────────────────────────────────
@@ -63,7 +76,7 @@ def api_list_messages():
             "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
     conn.close()
-    return jsonify({"messages": _annotate_replied([dict(r) for r in rows])})
+    return jsonify({"threads": _build_threads([dict(r) for r in rows])})
 
 
 @app.route("/api/messages", methods=["POST"])
@@ -129,25 +142,6 @@ def api_update_message(msg_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
-
-
-@app.route("/api/contacts", methods=["GET"])
-def api_list_contacts():
-    """상용문구 발송 대상 드롭다운용 — 번호별로 가장 최근 메시지 시각/이름을
-    묶어서 보여준다."""
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT phone_number,
-               MAX(created_at) AS last_at,
-               (SELECT contact_name FROM messages m2
-                 WHERE m2.phone_number = m1.phone_number AND m2.contact_name != ''
-                 ORDER BY m2.id DESC LIMIT 1) AS contact_name
-          FROM messages m1
-         GROUP BY phone_number
-         ORDER BY last_at DESC
-    """).fetchall()
-    conn.close()
-    return jsonify({"contacts": [dict(r) for r in rows]})
 
 
 # ── 상용문구 ─────────────────────────────────────────────
