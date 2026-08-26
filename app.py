@@ -106,7 +106,7 @@ BUSINESS_END_HOUR = 18
 # 나눠 보낸 문자처럼 같은 번호에서 짧은 시간 안에 여러 통이 연달아 올 때,
 # 매 통마다 자동발송이 또 나가면 스팸처럼 느껴진다 — 그 번호로 이 시간(분)
 # 안에 이미 발신 문자가 나갔으면 자동발송을 건너뛴다.
-AUTO_REPLY_QUIET_MINUTES = 5
+AUTO_REPLY_QUIET_MINUTES = 1
 
 
 def _is_business_hours(now: datetime = None) -> bool:
