@@ -25,6 +25,8 @@
 """
 import argparse
 import threading
+import time
+from datetime import datetime
 
 import requests
 
@@ -110,18 +112,25 @@ def make_reporter(server: str, merge_window: float = 0.0):
 
 def _load_recent_seen(server: str, limit: int = 300) -> dict:
     """서버(app.py)에 이미 저장된 최근 수신 메시지를
-    {번호: {(본문 줄, 시각), ...}} 형태로 불러온다. phone_link 쪽 감시
-    함수들과 똑같이 (줄 내용, 시각) 조합을 키로 써야, 시간이 지나 완전히
-    같은 문구가 다시 와도 "이미 본 것"으로 착각해 영원히 무시하지 않는다
-    (자세한 이유는 watch_notifications()의 설명 참고).
+    {번호: {본문 줄: 저장된 시각(epoch), ...}} 형태로 불러온다 —
+    phone_link 쪽 감시 함수들(watch_notifications()/watch_new_messages())과
+    똑같은 구조라, 이걸 그대로 seen_lines_by_sender/seen_bodies_by_phone에
+    넘기면 재시작 전후로 "언제 마지막으로 봤는지" 판단이 끊기지 않고
+    이어진다(자세한 쿨다운 이유는 watch_notifications() 설명 참고).
 
-    watch_daemon.py를 껐다 켜면 phone_link.watch_notifications()/
-    watch_new_messages()의 "이미 처리한 내용" 기억이 메모리라서
-    초기화되는데, 그 시점에 알림 카드나 대화 목록에 예전 내용이 그대로
-    남아있으면 이미 저장된 걸 "새 것"으로 착각해서 서버로 또 올리는
-    문제가 실제로 있었다. 시작하기 전에 서버가 이미 아는 내용을 미리
-    불러와서 phone_link 쪽 중복 방지 상태를 채워두면, 알림/대화 목록 자체는
-    안 건드리면서도 재시작으로 인한 중복 저장을 막을 수 있다.
+    watch_daemon.py를 껐다 켜면 phone_link 쪽 "이미 처리한 내용" 기억이
+    메모리라서 초기화되는데, 그 시점에 알림 카드나 대화 목록에 예전
+    내용이 그대로 남아있으면 이미 저장된 걸 "새 것"으로 착각해서 서버로
+    또 올리는 문제가 실제로 있었다. 시작하기 전에 서버가 이미 아는
+    내용을 미리 불러와서 phone_link 쪽 중복 방지 상태를 채워두면, 알림/
+    대화 목록 자체는 안 건드리면서도 재시작으로 인한 중복 저장을 막을
+    수 있다.
+
+    시각은 화면에 찍히는 msg_time 문자열이 아니라 서버가 실제로 저장한
+    created_at(로컬 시각)을 epoch로 변환해서 쓴다 — msg_time은 상대
+    시간 표시 등으로 계속 바뀔 수 있어 재시작 시점엔 원래 감지했을 때와
+    다른 값일 수 있고(그러면 쿨다운 판단이 아예 어긋난다), created_at은
+    실제로 그 메시지를 저장한 순간을 가리키는 고정값이라 믿을 수 있다.
 
     ⚠ 저장된 body를 줄 단위로 쪼개서 넣는다 — --merge-window를 켜서 여러
     줄이 "A\\nB"처럼 하나로 합쳐져 저장된 경우, phone_link 쪽에서는 여전히
@@ -146,10 +155,15 @@ def _load_recent_seen(server: str, limit: int = 300) -> dict:
             for m in candidates:
                 if not m or m.get("direction") != "in":
                     continue
-                already_seen = seen.setdefault(m["phone_number"], set())
+                created_at = m.get("created_at")
+                try:
+                    seen_at = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").timestamp()
+                except (TypeError, ValueError):
+                    seen_at = time.time()  # 형식이 안 맞으면 "방금 봤다"로 보수적으로 처리
+                already_seen = seen.setdefault(m["phone_number"], {})
                 for line in (m["body"] or "").split("\n"):
                     if line:
-                        already_seen.add((line, m.get("msg_time") or ""))
+                        already_seen[line] = seen_at
     except Exception as e:
         print(f"[경고] 기존 메시지를 불러오지 못해 중복 방지 없이 시작합니다: {e!r}")
     return seen

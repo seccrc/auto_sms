@@ -100,6 +100,15 @@ PROCESS_NAME = "PhoneExperienceHost.exe"
 # 같은 단어가 들어간 아무 창이나 다 걸려버리므로 위험하다.
 WINDOW_TITLE_RE = r"^(휴대폰\S*\s*연결|Phone Link|Your Phone)$"
 
+# 감시 중복 방지 쿨다운 — 같은 번호에서 완전히 같은 문구를 다시 봐도, 이
+# 시간(초) 안이면 "아직 그대로 남아있는 예전 알림/미리보기"로 보고
+# 무시하고, 이 시간이 지나서 다시 보이면 "시간이 지나 진짜로 다시 온 것"
+# 으로 보고 새로 감지한다. 화면에 찍히는 "시각" 문자열(상대 시간 표시 등)은
+# 실시간으로 계속 바뀔 수 있어 믿을 수 없으므로, 그 대신 우리 쪽에서 직접
+# 잰 실제 경과 시간(time.time())으로 판단한다 — _seen_recently()/
+# _mark_seen() 참고.
+_DEDUP_COOLDOWN_SECONDS = 600  # 10분
+
 # 실제 --dump로 확인된 automation_id (추측 아님).
 _CONVERSATION_LIST_CRITERIA = dict(auto_id="CVSListView", control_type="List")
 _COMPOSE_BOX_CRITERIA = dict(auto_id="InputTextBox", control_type="Edit")
@@ -127,6 +136,18 @@ _BIDI_STRIP_RE = re.compile(r"[\u2066-\u2069\u200e\u200f]")
 
 def _clean_bidi(text: str) -> str:
     return _BIDI_STRIP_RE.sub("", text or "").strip()
+
+
+def _seen_recently(seen_by_sender: dict, phone: str, line: str, now: float) -> bool:
+    """seen_by_sender는 {번호: {본문 줄: 마지막으로 본 시각(epoch), ...}} 구조.
+    그 줄을 _DEDUP_COOLDOWN_SECONDS 안에 이미 본 적 있으면 True — "아직
+    그대로 남아있는 예전 알림/미리보기"로 보고 건너뛰라는 뜻이다."""
+    last_seen = seen_by_sender.get(phone, {}).get(line)
+    return last_seen is not None and (now - last_seen) < _DEDUP_COOLDOWN_SECONDS
+
+
+def _mark_seen(seen_by_sender: dict, phone: str, line: str, now: float):
+    seen_by_sender.setdefault(phone, {})[line] = now
 
 
 def _top_window_any_state(app, timeout: int):
@@ -379,16 +400,10 @@ def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int 
     control_type="ListItem"이라 컨테이너로 구분해야 함).
 
     중복 방지는 watch_notifications()와 같은 방식이다 — 발신자(전화번호
-    또는 연락처 이름)별로 지금까지 콜백으로 넘긴 미리보기 문자열을 집합으로
-    기억해뒀다가, 이미 본 것과 같으면 건너뛴다. 원래는 "행 텍스트 앞 60자"를
-    키로 써서 마지막으로 본 값 하나만 기억했는데, 서로 다른 대화의 미리보기
-    앞부분이 우연히 같으면 잘못 덮어써질 여지가 있었고, watch_daemon.py
-    재시작 시 서버에 이미 저장된 내용으로 미리 채워 넣기도(seed) 어려운
-    구조였다. 지금 방식은 seen_bodies_by_phone을 그대로 넘기면 그 상태로
-    시작하므로, watch_daemon.py의 _load_recent_seen()으로 재시작 중복
-    저장을 막을 수 있다(자세한 이유는 watch_notifications() 참고). 다만
-    같은 문구가 실제로 다른 시점에 두 번 와도 두 번째는 누락될 수 있다는
-    한계도 watch_notifications()와 동일하게 가진다.
+    또는 연락처 이름)별로 지금까지 콜백으로 넘긴 미리보기 문자열과 그걸
+    마지막으로 본 시각을 기억해뒀다가, _DEDUP_COOLDOWN_SECONDS 안에 같은
+    내용을 또 보면 건너뛴다(자세한 이유는 watch_notifications() 참고).
+    그 시간이 지나서 같은 문구가 다시 오면 새 문자로 취급한다.
 
     hide_after_start=True면 첫 폴링(목록을 한 번 읽어 가상화된 요소를
     "예열"하는 시점)이 끝난 직후 창을 자동으로 최소화한다 — 자세한 이유는
@@ -396,7 +411,7 @@ def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int 
     win = _connect_main_window()
     _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
     if seen_bodies_by_phone is None:
-        seen_bodies_by_phone = {}  # {발신자: {이미 콜백으로 넘긴 미리보기, ...}}
+        seen_bodies_by_phone = {}  # {발신자: {미리보기: 마지막으로 본 시각(epoch), ...}}
     hidden_already = not hide_after_start
 
     print(f"[감시 시작] {poll_interval}초 간격으로 대화 목록을 확인합니다. 종료: Ctrl+C")
@@ -416,13 +431,12 @@ def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int 
                 if not parsed:
                     continue
                 phone, contact_name, preview, msg_time = parsed
-                already_seen = seen_bodies_by_phone.setdefault(phone, set())
                 if not preview:
                     continue
-                seen_key = (preview, msg_time)
-                if seen_key in already_seen:
+                now = time.time()
+                if _seen_recently(seen_bodies_by_phone, phone, preview, now):
                     continue
-                already_seen.add(seen_key)
+                _mark_seen(seen_bodies_by_phone, phone, preview, now)
                 callback(phone, contact_name, preview, msg_time)
             polled_ok = True
         except Exception as e:
@@ -455,16 +469,22 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
     와도(카드에 여러 줄이 한꺼번에 새로 쌓여도) 폴링 간격과 무관하게 전부
     잡힌다.
 
-    "본 줄"을 기억하는 키는 줄 내용 하나만이 아니라 (줄 내용, 그때 카드에
-    찍혀 있던 시각) 조합이다 — 처음엔 줄 내용만으로 비교했는데, 그러면
-    "완전히 같은 문구를 시간 간격을 두고 다시 보낸" 경우(예: 테스트 문구를
-    또 보냄, 또는 민원인이 같은 인사말을 며칠 뒤 또 보냄) 두 번째가 "이미
-    본 줄"로 잘못 취급돼 영원히 무시되는 문제가 실제로 있었다. 카드에
-    표시된 시각은 새 문자가 실제로 쌓일 때만 바뀌므로, 시각까지 같이
-    비교하면 "카드가 아직 그대로라 진짜 중복인 경우"와 "시간이 지나
-    똑같은 문구가 다시 온 경우"를 구분할 수 있다. 카드가 초기화되거나
-    (예: "모든 알림 지우기") 오래된 줄이 밀려나가도 "줄 개수"만으로
-    비교하는 것보다 이 방식이 안전하다는 원래 판단은 그대로 유지된다.
+    "본 줄"을 기억할 때는 줄 내용과 함께 "그걸 마지막으로 본 실제 시각
+    (time.time())"도 같이 기억해서, _DEDUP_COOLDOWN_SECONDS 안에 같은
+    줄을 또 보면 "아직 카드가 그대로라 진짜 중복"으로 보고 건너뛰고, 그
+    시간이 지나서 같은 줄이 다시 보이면 "시간이 지나 진짜로 다시 온 것"
+    으로 보고 새로 감지한다.
+
+    처음엔 줄 내용만으로(시간 구분 없이) 비교했는데, 그러면 완전히 같은
+    문구를 시간 간격을 두고 다시 보낸 경우(예: 테스트 문구를 또 보냄,
+    민원인이 같은 인사말을 며칠 뒤 또 보냄) 두 번째가 "이미 본 줄"로
+    잘못 취급돼 영원히 무시되는 문제가 실제로 있었다. 그렇다고 화면에
+    표시되는 "시각" 문자열을 키에 넣는 것도 시도해봤지만, 그 표시 값이
+    상대 시간 형식이면 카드 내용이 그대로인데도 시간이 지나면서 계속
+    바뀔 수 있어(예: "지금" -> "1분 전") 오히려 같은 카드를 매번 새 걸로
+    착각하는 정반대 문제가 생길 위험이 있었다 — 그래서 화면 표시값이
+    아니라 우리 쪽에서 직접 잰 실제 경과 시간으로 판단하는 지금 방식으로
+    정리했다.
 
     AppNameTextBlock이 "메시지"인 항목만 문자로 취급하고, 카카오톡 등 다른
     앱 알림은 걸러서 무시한다.
@@ -475,17 +495,17 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
     최소화한 채로도 계속 정상적으로 감지되는 걸 확인했다 — 그래서 시작
     직후 딱 한 번만 "정상 크기로 예열 → 최소화"를 자동으로 해준다.
 
-    seen_lines_by_sender를 넘기면 그 상태로 시작한다({발신자: {이미 처리한
-    본문 줄, ...}}) — watch_daemon.py를 재시작해도, 알림 카드에 예전
-    내용이 그대로 남아있으면 이미 저장된 걸 "새 줄"로 착각해서 서버로 또
-    올리는 문제가 있었다. 재시작 전에 서버에 이미 저장된 내용으로 이
-    딕셔너리를 미리 채워서 넘기면(watch_daemon.py의 _load_recent_seen()
-    참고), 알림은 그대로 두면서도 중복 전송을 막을 수 있다. 안 주면
-    빈 상태로 시작한다(기존 동작과 동일)."""
+    seen_lines_by_sender를 넘기면 그 상태로 시작한다({발신자: {본문 줄:
+    마지막으로 본 시각(epoch), ...}}) — watch_daemon.py를 재시작해도,
+    알림 카드에 예전 내용이 그대로 남아있으면 이미 저장된 걸 "새 줄"로
+    착각해서 서버로 또 올리는 문제가 있었다. 재시작 전에 서버에 이미
+    저장된 내용으로 이 딕셔너리를 미리 채워서 넘기면(watch_daemon.py의
+    _load_recent_seen() 참고), 알림은 그대로 두면서도 중복 전송을 막을
+    수 있다. 안 주면 빈 상태로 시작한다(기존 동작과 동일)."""
     win = _connect_main_window()
     _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
     if seen_lines_by_sender is None:
-        seen_lines_by_sender = {}  # {발신자: {이미 콜백으로 넘긴 본문 줄, ...}}
+        seen_lines_by_sender = {}  # {발신자: {본문 줄: 마지막으로 본 시각(epoch), ...}}
     hidden_already = not hide_after_start
 
     print(f"[알림 감시 시작] {poll_interval}초 간격으로 알림 패널을 확인합니다. 종료: Ctrl+C")
@@ -504,14 +524,13 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                 if not parsed:
                     continue
                 phone, contact_name, body_lines, msg_time = parsed
-                already_seen = seen_lines_by_sender.setdefault(phone, set())
                 for line in body_lines:
                     if not line:
                         continue
-                    seen_key = (line, msg_time)
-                    if seen_key in already_seen:
+                    now = time.time()
+                    if _seen_recently(seen_lines_by_sender, phone, line, now):
                         continue
-                    already_seen.add(seen_key)
+                    _mark_seen(seen_lines_by_sender, phone, line, now)
                     callback(phone, contact_name, line, msg_time)
             polled_ok = True
         except Exception as e:
