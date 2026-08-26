@@ -160,6 +160,20 @@ let selectedThreadIds = new Set();  // 체크박스로 골라서 병합 대상�
 let currentPageThreadIds = [];  // 전체선택 체크박스가 대상으로 삼는, 현재 페이지에 보이는 스레드 id들
 const THREADS_PER_PAGE = 10;
 let currentPage = 1;  // 15초 자동 갱신으로 목록이 다시 그려져도 보던 페이지를 유지한다
+let searchQuery = '';  // 번호/이름/내용/처리상태/입력/접수번호 통합 검색어(소문자로 정규화해서 저장)
+
+function onSearchInput(value) {
+    searchQuery = (value || '').trim().toLowerCase();
+    currentPage = 1;
+    renderThreads();
+}
+
+function threadMatchesSearch(t) {
+    if (!searchQuery) return true;
+    const m = t.complaint;
+    return [m.phone_number, m.contact_name, m.body, m.status, m.manual_input, m.receipt_no]
+        .some(v => (v || '').toLowerCase().includes(searchQuery));
+}
 
 // created_at은 서버가 "YYYY-MM-DD HH:MM:SS"(로컬시각)로 내려주므로 같은 형식으로 오늘 날짜를 만들어 앞부분만 비교한다
 function todayLocalDateStr() {
@@ -363,10 +377,18 @@ function renderThreads() {
         syncSelectAllCheckbox();
         return;
     }
-    const totalPages = Math.max(1, Math.ceil(lastThreads.length / THREADS_PER_PAGE));
+    const filteredThreads = searchQuery ? lastThreads.filter(threadMatchesSearch) : lastThreads;
+    if (!filteredThreads.length) {
+        listEl.innerHTML = '<div class="empty">검색 결과가 없습니다</div>';
+        currentPageThreadIds = [];
+        updateMergeBar();
+        syncSelectAllCheckbox();
+        return;
+    }
+    const totalPages = Math.max(1, Math.ceil(filteredThreads.length / THREADS_PER_PAGE));
     currentPage = Math.min(Math.max(1, currentPage), totalPages);
     const pageStart = (currentPage - 1) * THREADS_PER_PAGE;
-    const pageThreads = lastThreads.slice(pageStart, pageStart + THREADS_PER_PAGE);
+    const pageThreads = filteredThreads.slice(pageStart, pageStart + THREADS_PER_PAGE);
     currentPageThreadIds = pageThreads.map(t => t.complaint.id);
     const tplOptions = templatesCache.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('');
     listEl.innerHTML = pageThreads.map((t, idx) => {
