@@ -65,6 +65,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
   td.msg-body { white-space: pre-line; }
+  td select { width: auto; margin-bottom: 0; padding: 4px 6px; font-size: 12px; }
   th { color: var(--ink-soft); font-weight: 600; }
   .pill { font-size: 11px; padding: 2px 7px; border-radius: 9px; font-weight: 600; }
   .pill-in { background: var(--accent-soft); color: var(--accent); }
@@ -129,7 +130,7 @@
     <div style="overflow-x:auto;">
       <table>
         <thead>
-          <tr><th>구분</th><th>번호</th><th>이름</th><th>내용</th><th>시각</th><th>입력</th><th>처리</th><th>접수번호</th></tr>
+          <tr><th>구분</th><th>번호</th><th>이름</th><th>내용</th><th>시각</th><th>처리상태</th><th>입력</th><th>접수번호</th></tr>
         </thead>
         <tbody id="msgTableBody">
           <tr><td colspan="8" class="empty">불러오는 중…</td></tr>

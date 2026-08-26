@@ -24,7 +24,8 @@ def init_db():
             direction     TEXT NOT NULL CHECK(direction IN ('in','out')),  -- in=수신, out=발신
             msg_time      TEXT,                    -- 문자 자체의 시각(휴대폰 연결 화면에 찍힌 시각)
             dedup_key     TEXT UNIQUE,              -- 워처가 같은 메시지를 중복 저장하지 않게 막는 키
-            created_at    TEXT DEFAULT (datetime('now', 'localtime'))
+            created_at    TEXT DEFAULT (datetime('now', 'localtime')),
+            status        TEXT DEFAULT ''            -- 처리상태
         );
         CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(phone_number);
         CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
@@ -44,10 +45,12 @@ def init_db():
 
 # 민원 문자 목록에서 직원이 직접 채워 넣는 칸들 — 워처/자동화가 채우는 값이
 # 아니라 사람이 보고 판단해서 입력하는 값이라 전부 빈 문자열 기본값으로 둔다.
+# status(처리상태)는 미처리/처리중/처리완료 중 고르는 드롭다운 전용 컬럼이고,
+# manual_input(입력)/receipt_no(접수번호)는 자유 텍스트다.
 _MESSAGE_MANUAL_COLUMNS = {
-    "manual_input":  "TEXT DEFAULT ''",  # 입력
-    "manual_status": "TEXT DEFAULT ''",  # 처리
-    "receipt_no":    "TEXT DEFAULT ''",  # 접수번호
+    "status":       "TEXT DEFAULT ''",  # 처리상태
+    "manual_input": "TEXT DEFAULT ''",  # 입력
+    "receipt_no":   "TEXT DEFAULT ''",  # 접수번호
 }
 
 

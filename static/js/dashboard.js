@@ -1,6 +1,17 @@
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 let templatesCache = [];
+const STATUS_OPTIONS = ['', '처리중', '처리완료'];
+const STATUS_LABELS = { '': '미처리', '처리중': '처리중', '처리완료': '처리완료' };
+
+async function updateMessageStatus(id, status) {
+    try {
+        await fetch(`/api/messages/${id}/status`, {
+            method: 'PATCH', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({status})
+        });
+    } catch (e) {}
+}
 
 // ── 최근 대화 상대 (수신자 드롭다운) ──
 async function loadContacts() {
@@ -147,8 +158,12 @@ async function loadMessages() {
                 <td>${esc(m.contact_name || '')}</td>
                 <td class="msg-body">${esc(m.body)}</td>
                 <td>${esc(m.msg_time || m.created_at || '')}</td>
+                <td>
+                    <select onchange="updateMessageStatus(${m.id}, this.value)">
+                        ${STATUS_OPTIONS.map(s => `<option value="${esc(s)}" ${s === (m.status || '') ? 'selected' : ''}>${esc(STATUS_LABELS[s])}</option>`).join('')}
+                    </select>
+                </td>
                 <td><input class="cell-input" data-id="${m.id}" data-field="manual_input" value="${esc(m.manual_input || '')}" onblur="saveMessageCell(this)"></td>
-                <td><input class="cell-input" data-id="${m.id}" data-field="manual_status" value="${esc(m.manual_status || '')}" onblur="saveMessageCell(this)"></td>
                 <td><input class="cell-input" data-id="${m.id}" data-field="receipt_no" value="${esc(m.receipt_no || '')}" onblur="saveMessageCell(this)"></td>
             </tr>`).join('');
     } catch (e) {
@@ -156,9 +171,10 @@ async function loadMessages() {
     }
 }
 
-// 세 칸(입력/처리/접수번호) 중 하나에서 포커스가 빠지면, 그 행의 세 값을
-// 한꺼번에 저장한다 — 서버가 세 컬럼을 통째로 덮어쓰는 방식이라(app.py 참고)
-// 하나만 보내면 나머지 두 칸이 빈 값으로 지워지기 때문에 항상 같이 보낸다.
+// 두 칸(입력/접수번호) 중 하나에서 포커스가 빠지면, 그 행의 두 값을
+// 한꺼번에 저장한다 — 서버가 두 컬럼을 통째로 덮어쓰는 방식이라(app.py 참고)
+// 하나만 보내면 나머지 한 칸이 빈 값으로 지워지기 때문에 항상 같이 보낸다.
+// 처리상태는 이 함수가 아니라 updateMessageStatus()가 따로 관리한다.
 async function saveMessageCell(input) {
     const id = input.dataset.id;
     const row = input.closest('tr');
@@ -169,7 +185,6 @@ async function saveMessageCell(input) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 manual_input: get('manual_input'),
-                manual_status: get('manual_status'),
                 receipt_no: get('receipt_no'),
             }),
         });
