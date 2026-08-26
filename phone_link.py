@@ -688,6 +688,18 @@ def _parse_notification_item(item) -> tuple:
                 app_name = txt
             elif auto_id == _NOTIF_SENDER_AUTO_ID:
                 sender = txt
+                if txt in _NOTIF_SELF_SENDER_LABELS:
+                    # 카드 맨 위 제목(CompactModeTitleTextBlock) 자체가 "나"인
+                    # 경우 — 실제 dump로 확인해보니, 본문 후보 목록의 "맨 첫
+                    # 줄"이 바로 우리가 보낸 답신 본문이었다. 본문 중간에 다시
+                    # 나오는 "나" 소제목은 몇 줄 아래에서 skip_next_line으로
+                    # 걸러지는데, 이 맨 위 제목은 auto_id로 먼저 소비돼버려서
+                    # 본문 루프가 "나" 텍스트 자체를 보지 못해 같은 처리를
+                    # 받지 못했다 — 그 결과 카드의 첫 답신 문구(예:
+                    # "업무시간이 끝났습니다...")가 그대로 본문에 남아 있었다.
+                    # 여기서도 똑같이 "바로 다음 한 줄은 우리 답신" 신호를
+                    # 켜서 동일하게 걸러지게 한다.
+                    skip_next_line = True
             elif auto_id == _NOTIF_TIME_AUTO_ID:
                 msg_time = txt
             elif txt:
