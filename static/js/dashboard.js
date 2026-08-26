@@ -235,7 +235,7 @@ function onReplyTemplateChange(selectEl) {
     if (t) ta.value = t.body;
 }
 
-async function sendReply(phone, btn) {
+async function sendReply(phone, complaintId, btn) {
     const box = btn.closest('.send-box');
     const ta = box.querySelector('textarea');
     const body = ta.value.trim();
@@ -244,7 +244,7 @@ async function sendReply(phone, btn) {
     try {
         const r = await fetch('/api/send', {
             method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({phone_number: phone, body})
+            body: JSON.stringify({phone_number: phone, body, complaint_id: complaintId})
         });
         const d = await r.json();
         if (r.ok && d.ok) {
@@ -346,7 +346,7 @@ function renderThreads() {
                             ${tplOptions}
                         </select>
                         <textarea placeholder="보낼 내용"></textarea>
-                        <button class="btn-primary" onclick="sendReply('${esc(m.phone_number)}', this)">발송</button>
+                        <button class="btn-primary" onclick="sendReply('${esc(m.phone_number)}', ${m.id}, this)">발송</button>
                     </div>
                 </div>
             </div>`;

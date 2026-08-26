@@ -33,12 +33,17 @@ def _build_threads(rows: list) -> list:
     """민원(수신 문자) 한 건에 답신(발신 문자)이 여러 개 이어질 수 있어서,
     평평한 메시지 목록을 "민원 + 그 이후 답신들" 스레드 단위로 묶는다.
 
-    thread_id가 찍혀 있는 메시지들(체크박스로 수동 병합된 것 — 아래
-    api_merge_threads() 참고)은 그 값이 같은 것끼리 무조건 한 스레드로
-    묶는다. 그게 아닌 메시지는 기존과 같이, 같은 번호로 그 민원보다
-    나중에 온 발신 문자를 답신으로 간주하는 시간 순서 규칙으로 그때그때
-    자동으로 묶는다 — 답신은 화면의 "문자발송"이 항상 그 민원의 스레드
-    안에서만 나가므로 이 규칙으로 충분하다.
+    thread_id가 찍혀 있는 메시지들은 그 값이 같은 것끼리 무조건 한
+    스레드로 묶는다 — 체크박스로 수동 병합된 것(api_merge_threads() 참고)
+    뿐 아니라, 화면의 "문자발송"으로 보낸 답신도 그 답신이 어느 민원 밑
+    send-box에서 나갔는지(complaint_id, api_send() 참고)에 따라 그 민원의
+    thread_id로 명시적으로 묶인다. 같은 번호로 서로 다른 민원이 따로 와
+    있을 수 있어서, 번호만 보고 "그 민원보다 나중에 온 발신 문자는 다
+    답신"으로 넘겨짚으면 오래된 민원에 대한 답신이 그 번호의 최신 민원
+    스레드로 잘못 붙어버린다 — 그래서 thread_id 없이 들어오는 발신
+    문자(예: 업무외 자동발송, watch_daemon이 감지한 옛 데이터)에 한해서만
+    아래의 시간 순서 규칙(같은 번호로 그 민원보다 나중에 온 발신 문자를
+    답신으로 간주)으로 보조적으로 묶는다.
 
     번호에 아직 수신 문자가 없는데 발신 문자가 먼저 있는 경우(과거 데이터 등)는
     그 발신 문자 자체를 스레드의 머리글로 두고 답신 컨트롤 없이 보여준다.
@@ -427,6 +432,7 @@ def api_send():
     data = request.get_json(force=True, silent=True) or {}
     phone_number = (data.get("phone_number") or "").strip()
     body = (data.get("body") or "").strip()
+    complaint_id = data.get("complaint_id")
     if not phone_number or not body:
         return jsonify({"error": "수신번호와 문구를 입력하세요"}), 400
 
@@ -441,12 +447,27 @@ def api_send():
         return jsonify({"error": f"발송 실패: {e}"}), 502
 
     conn = get_db()
+    # 같은 번호로 서로 다른 민원이 따로 들어와 있을 수 있다 — thread_id 없이
+    # phone_number만으로 저장하면 _build_threads()가 그 번호의 "가장 최근"
+    # 수신 스레드에 무조건 붙여버려서, 예전 민원 화면에서 답신을 보내도
+    # 최신 민원 스레드로 잘못 들어가 버린다. 그래서 화면이 어떤 민원(스레드)
+    # 밑에서 보낸 답신인지(complaint_id)를 같이 보내주면, 그 스레드에
+    # 명시적으로 묶는다 — 그 민원이 아직 한 번도 병합된 적 없어 thread_id가
+    # 비어 있으면(api_merge_threads와 같은 규칙으로) 자기 자신의 id를
+    # thread_id로 삼아 스스로를 앵커로 만든다.
+    thread_id = None
+    if complaint_id:
+        row = conn.execute("SELECT thread_id FROM messages WHERE id=?", (complaint_id,)).fetchone()
+        if row:
+            thread_id = row["thread_id"] or complaint_id
+            if row["thread_id"] is None:
+                conn.execute("UPDATE messages SET thread_id=? WHERE id=?", (thread_id, complaint_id))
     # dedup_key는 워처가 같은 수신 문자를 중복 저장하지 않게 막는 용도라 발신
     # 기록에는 필요 없다 — NULL로 두면(SQLite는 NULL끼리 UNIQUE 충돌을 안 봄)
     # 같은 번호로 같은 문구를 여러 번 보내도 매번 정상적으로 기록된다.
     conn.execute(
-        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at) VALUES (?,?,'out',NULL,?)",
-        (phone_number, body, now_local()),
+        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at, thread_id) VALUES (?,?,'out',NULL,?,?)",
+        (phone_number, body, now_local(), thread_id),
     )
     conn.commit()
     conn.close()
