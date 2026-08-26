@@ -146,20 +146,32 @@ def _maybe_send_auto_reply(phone_number: str):
     finally:
         conn.close()
 
+    # phone_link.send_message()는 창을 열고 타이핑하고 보내기까지 여러 단계를
+    # 거치는 실제 UI 자동화라 몇 초씩 걸릴 수 있고, 그 사이 use_reloader가
+    # git pull로 바뀐 파일을 감지해 프로세스를 재시작하는 것과 타이밍이
+    # 겹치면 발송 직후 코드가 아예 실행되다 만 채로 끊길 수 있다. 그래서
+    # "문자는 실제로 나갔는데 기록만 안 남는" 사고를 최대한 줄이려고, DB
+    # 기록을 발송 "전에" 먼저 남겨두고(발송에 실패한 경우에만 되돌린다) —
+    # 반대 순서(발송 후 기록)로 하면 발송은 됐는데 기록이 아예 안 남는
+    # 쪽으로 실패하기 쉽고, 그 경우는 원인도 알기 어렵다.
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at, auto_sent) VALUES (?,?,'out',NULL,?,1)",
+        (phone_number, body, now_local()),
+    )
+    row_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
     try:
         import phone_link
         phone_link.send_message(phone_number, body)
     except Exception as e:
-        print(f"[업무외 자동발송] 실패 ({phone_number}): {e!r}")
-        return
-
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO messages (phone_number, body, direction, dedup_key, created_at, auto_sent) VALUES (?,?,'out',NULL,?,1)",
-        (phone_number, body, now_local()),
-    )
-    conn.commit()
-    conn.close()
+        print(f"[업무외 자동발송] 발송 실패, 기록도 되돌립니다 ({phone_number}): {e!r}")
+        conn = get_db()
+        conn.execute("DELETE FROM messages WHERE id=?", (row_id,))
+        conn.commit()
+        conn.close()
 
 
 @app.route("/api/messages", methods=["POST"])
@@ -187,7 +199,12 @@ def api_save_message():
     conn.commit()
     conn.close()
     if inserted:
-        _maybe_send_auto_reply(phone_number)
+        try:
+            _maybe_send_auto_reply(phone_number)
+        except Exception as e:
+            # 자동발송 쪽에서 뭐가 터지든, 이미 저장된 수신 문자 응답까지
+            # 같이 실패해서 워처가 "저장 실패"로 오인하면 안 된다.
+            print(f"[업무외 자동발송] 예상 못한 오류 ({phone_number}): {e!r}")
     return jsonify({"ok": True, "inserted": inserted})
 
 
