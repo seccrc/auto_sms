@@ -135,8 +135,18 @@ async function loadAutoReplySettings() {
         document.getElementById('autoReplyEnabled').checked = !!d.enabled;
         renderAutoReplyTemplateOptions();
         if (d.template_id) document.getElementById('autoReplyTemplateSelect').value = d.template_id;
+        // 토글이 켜져 있으면 업무시간과 무관하게 바로 발송되므로(공휴일처럼
+        // 요일상 평일이지만 자리를 비운 날 대응), 업무시간 여부는 참고
+        // 정보로만 보여주고 "대기 상태"처럼 발송이 막힌다고 오해하게 하지
+        // 않는다.
         const statusEl = document.getElementById('autoReplyStatus');
-        statusEl.textContent = d.business_hours_now ? '지금은 업무시간이라 자동발송은 대기 상태입니다.' : '지금은 업무외 시간입니다.';
+        if (!d.enabled) {
+            statusEl.textContent = '자동발송이 꺼져 있습니다.';
+        } else if (d.business_hours_now) {
+            statusEl.textContent = '지금은 업무시간이지만 자동발송이 켜져 있어 바로 발송됩니다. 출근하면 꺼주세요.';
+        } else {
+            statusEl.textContent = '지금은 업무외 시간입니다. 자동발송이 켜져 있습니다.';
+        }
     } catch (e) {}
 }
 

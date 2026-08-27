@@ -177,12 +177,14 @@ def _dispatch_auto_reply(phone_number: str, complaint_id: int):
 
 
 def _maybe_send_auto_reply(phone_number: str, complaint_id: int):
-    """업무외 시간에 새 민원이 들어왔고 "업무외 자동발송"이 켜져 있으면,
-    화면에서 골라둔 상용문구를 그 번호로 자동 발송한다. 업무시간 안이면
-    직원이 직접 확인/발송하는 게 기본이라 아무것도 하지 않는다."""
-    if _is_business_hours():
-        return
-
+    """"업무외 자동발송" 토글이 켜져 있으면 화면에서 골라둔 상용문구를 그
+    번호로 자동 발송한다. 평일 업무시간(_is_business_hours())엔 여기서
+    막지 않는다 — 공휴일처럼 요일상 평일이지만 실제로는 아무도 없는
+    날에도 직원이 퇴근 전 토글만 켜두면 자동발송이 되어야 하기 때문이다
+    (요일만으로 공휴일을 자동 판별할 수는 없어서, 그 판단을 직원이 토글로
+    직접 하도록 뒤집은 것). 즉 토글은 껐다 켜기 전까지 계속 유지되고,
+    "업무시간이면 자동 대기"하는 동작은 더 이상 없다 — 출근하면 직접
+    꺼야 한다."""
     conn = get_db()
     try:
         if get_setting("auto_reply_enabled", "0") != "1":
