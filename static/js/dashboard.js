@@ -228,7 +228,12 @@ let statusFilter = '';        // 처리상태 칩 필터 ('' = 전체, '__pendin
 // 자리를 비운 사이 뭐가 새로 들어왔는지 한눈에 알아보라는 용도라, 세션이
 // 아니라 이 PC 기준으로 기억하는 게 맞다.
 const SEEN_KEY = 'auto_sms.lastSeenComplaintId';
-let lastSeenComplaintId = Number(localStorage.getItem(SEEN_KEY) || 0);
+const storedSeen = localStorage.getItem(SEEN_KEY);
+let lastSeenComplaintId = Number(storedSeen || 0);
+// 이 PC에서 대시보드를 처음 여는 경우엔 기준값이 없다 — 0으로 두면 이미
+// 쌓여있던 민원이 전부 NEW로 뜨면서 강조가 무의미해지므로, 첫 조회 결과의
+// 가장 큰 id를 기준으로 잡아 "이 시점 이후 새로 온 것"만 표시되게 한다.
+let seenBaselineNeeded = storedSeen === null;
 let newComplaintIds = new Set();  // 이번에 "새로 온 것"으로 표시할 민원 id들
 
 // 기간 칩 → /api/messages?since=YYYY-MM-DD 로 넘길 시작 날짜.
@@ -330,8 +335,17 @@ function refreshNewComplaints() {
     for (const t of lastThreads) {
         const m = t.complaint;
         if (m.direction !== 'in') continue;
-        if (m.id > lastSeenComplaintId) newComplaintIds.add(m.id);
         if (m.id > maxId) maxId = m.id;
+    }
+    if (seenBaselineNeeded) {
+        // 첫 조회 — 지금까지 쌓인 건 전부 "본 것"으로 두고 여기서부터 센다.
+        seenBaselineNeeded = false;
+        lastSeenComplaintId = maxId;
+        localStorage.setItem(SEEN_KEY, String(maxId));
+    }
+    for (const t of lastThreads) {
+        const m = t.complaint;
+        if (m.direction === 'in' && m.id > lastSeenComplaintId) newComplaintIds.add(m.id);
     }
     updateNewBanner(maxId);
 }
