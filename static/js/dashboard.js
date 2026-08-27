@@ -163,6 +163,10 @@ async function saveAutoReplySettings() {
             method: 'PUT', headers: {'Content-Type':'application/json'},
             body: JSON.stringify({enabled, template_id: templateId ? Number(templateId) : null})
         });
+        // 저장 직후 상태 문구("지금은 업무외 시간입니다...")가 바로 갱신되게
+        // 다시 불러온다 — 안 하면 다음 폴링이나 새로고침 전까지 꺼짐/켜짐
+        // 이전 문구가 그대로 남아있어서 헷갈린다.
+        loadAutoReplySettings();
     } catch (e) {}
 }
 
