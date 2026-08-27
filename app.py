@@ -9,7 +9,10 @@ watch_daemon.py와 phone_link.py는 pywinauto(Windows 전용)를 쓰므로 이 �
 자체는 아무 OS에서나 뜨지만, 실제 발송(/api/send)과 감시 데몬은 휴대폰
 연결 앱이 설치된 윈도우 PC에서만 동작한다.
 """
+import os
+import subprocess
 import threading
+import time
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
@@ -520,6 +523,40 @@ def api_send():
     )
     conn.commit()
     conn.close()
+    return jsonify({"ok": True})
+
+
+# ── 서버 종료 (대시보드 우측 상단 톱니바퀴 메뉴) ──────────────────
+@app.route("/api/shutdown", methods=["POST"])
+def api_shutdown():
+    """이 프로세스(app.py)뿐 아니라 별도로 떠 있는 watch_daemon.py까지 같이
+    내린다 — 서버만 죽고 감시 데몬은 계속 돌아서 어중간한 상태로 남는 걸
+    막기 위해서다. 응답을 먼저 보낸 뒤 별도 스레드에서 잠깐 기다렸다가
+    종료해야 브라우저가 "서버 종료 완료" 응답을 정상적으로 받는다.
+
+    os._exit(0)을 쓰는 이유: app.run(use_reloader=True)는 실제로는
+    부모(감시)+자식(진짜 서버) 두 프로세스 구조인데, 자식이 종료 코드
+    0으로 끝나면 부모도 그대로 따라 종료된다(재시작 트리거는 코드 3인
+    경우뿐). sys.exit()는 스레드 안에서는 그 스레드만 끝낼 뿐 프로세스
+    전체를 못 내리므로 os._exit()로 확실하게 끝낸다."""
+    def _shutdown_later():
+        time.sleep(0.5)
+        try:
+            subprocess.run(
+                [
+                    "powershell", "-NoProfile", "-Command",
+                    "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                    "Where-Object { $_.CommandLine -match 'watch_daemon\\.py' } | "
+                    "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+                ],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception as e:
+            print(f"[서버 종료] watch_daemon 종료 시도 실패: {e!r}")
+        os._exit(0)
+
+    threading.Thread(target=_shutdown_later, daemon=True).start()
     return jsonify({"ok": True})
 
 

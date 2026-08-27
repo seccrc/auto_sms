@@ -493,6 +493,31 @@ async function saveMessageCell(input) {
     } catch (e) {}
 }
 
+// ── 우측 상단 톱니바퀴 설정 메뉴 ──
+function toggleSettingsMenu(e) {
+    e.stopPropagation();
+    const panel = document.getElementById('settingsPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+// 메뉴 바깥을 클릭하면 닫히게 한다.
+document.addEventListener('click', (e) => {
+    const menu = document.getElementById('settingsMenu');
+    if (menu && !menu.contains(e.target)) {
+        document.getElementById('settingsPanel').style.display = 'none';
+    }
+});
+
+async function shutdownServer() {
+    if (!confirm('서버를 종료하시겠습니까?\n대시보드와 문자 감시 데몬이 모두 중지됩니다.')) return;
+    try {
+        await fetch('/api/shutdown', { method: 'POST' });
+    } catch (e) {
+        // 서버가 응답을 보내는 도중/직후 연결이 끊길 수 있어 에러는 무시한다.
+    }
+    alert('서버를 종료했습니다. 이 창은 닫으셔도 됩니다.');
+}
+
 loadTemplates();
 loadMessages();
 loadAutoReplySettings();
