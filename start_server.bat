@@ -34,3 +34,7 @@ start "" /b cmd /c python watch_daemon.py >> "logs\watch_daemon_%TODAY%.log" 2>&
 REM Both processes keep running in the background after this script exits.
 REM Check logs\app_%TODAY%.log and logs\watch_daemon_%TODAY%.log to see what
 REM they're doing, and use Task Manager (or "tasklist" / "taskkill") to stop them.
+
+REM Close this window right away — the server and daemon keep running in the
+REM background independently of this window.
+exit
