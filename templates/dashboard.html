@@ -30,6 +30,9 @@
     --shadow-md: 0 14px 32px -14px rgba(20,22,29,.18), 0 3px 8px -3px rgba(20,22,29,.08);
     --font-ui: 'IBM Plex Sans KR', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', 'Segoe UI', sans-serif;
     --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    /* 민원 목록 표가 찌그러지지 않고 유지해야 하는 최소 너비 —
+       .table-scroll 설명 참고. 컬럼 폭을 바꾸면 이 값도 같이 맞춰야 한다. */
+    --table-min-w: 1020px;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -141,6 +144,10 @@
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
     display: flex; flex-direction: column; min-height: 0; overflow: hidden;
     box-shadow: var(--shadow-md);
+    /* 그리드 항목은 기본값(min-width:auto)이면 안쪽 내용(표의 최소 너비)만큼
+       늘어나버려서, 표가 자기 안에서 가로 스크롤되지 않고 카드째 밖으로
+       삐져나간다. 0으로 풀어야 표가 카드 폭에 맞춰 스크롤된다. */
+    min-width: 0;
   }
   .msg-card-head { flex: 0 0 auto; padding: 18px 20px 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .msg-card-head h2 { font-size: 15px; margin: 0; display: flex; align-items: center; gap: 9px; }
@@ -159,14 +166,37 @@
   }
   .search-clear:hover { background: var(--surface-2); color: var(--ink-soft); }
   .search-row.has-value .search-clear { display: flex; }
-  /* 목록에 스크롤바가 생기면 그만큼(보통 15px) 행이 좁아지는데, 컬럼
-     제목줄(.col-head)은 스크롤 영역 바깥이라 안 좁아진다 — 그래서 제목은
-     제자리인데 값만 왼쪽으로 밀려 어긋나 보였다. 양쪽 다 scrollbar-gutter로
-     같은 폭을 항상 비워두면 스크롤 여부와 상관없이 컬럼이 맞는다. */
-  #threadList { flex: 1 1 auto; overflow-y: auto; min-height: 0; scrollbar-gutter: stable; }
-  .col-head { overflow-y: auto; scrollbar-gutter: stable; }
+  /* 컬럼 9개가 다 들어가려면 이만큼은 있어야 한다(고정폭 696 + 간격 80 +
+     좌우 여백 40 + 스크롤바 15 + 내용칸 최소 190). 창이 이보다 좁으면
+     칸을 찌그러뜨리는 대신 가로로 스크롤한다 — 예전에는 억지로 우겨넣느라
+     "내용" 칸이 0px까지 줄어 본문이 안 보이거나 뒤쪽 컬럼이 제목줄과
+     어긋났다. */
+  .table-scroll {
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+    overflow-x: auto; overflow-y: hidden;
+    /* 카드 밖으로 삐져나가지 않고 자기 안에서 가로 스크롤되게 한다 —
+       카드의 overflow:hidden에 기대면 좁은 화면에서 세로까지 잘려서
+       아래쪽 민원에 아예 접근할 수 없게 된다. */
+    max-width: 100%;
+  }
+  /* 목록에 세로 스크롤바가 생기면 그만큼(보통 15px) 행이 좁아지는데 제목줄은
+     안 좁아져서, 처리상태·입력·접수번호가 제목보다 왼쪽으로 밀려 보였다.
+     양쪽 다 scrollbar-gutter로 같은 폭을 항상 비워두면 스크롤 여부와
+     상관없이 컬럼이 맞는다. */
+  #threadList {
+    flex: 1 1 auto; overflow-y: auto; min-height: 0;
+    min-width: var(--table-min-w); scrollbar-gutter: stable;
+  }
+  .col-head { overflow-y: auto; scrollbar-gutter: stable; min-width: var(--table-min-w); }
   @media (max-width: 900px) {
-    #threadList { overflow: visible; scrollbar-gutter: auto; }
+    /* 좁은 화면에서는 페이지(.layout)가 통째로 세로 스크롤되므로, 표는
+       높이를 내용만큼 그대로 갖게 둔다(flex: 0 0 auto). overflow-x가
+       auto면 overflow-y에 visible을 줘도 auto로 바뀌어 표가 자기 높이
+       안에 갇혀버리기 때문에, 높이 쪽을 풀어주는 방식으로 처리한다.
+       가로 스크롤은 표 자신의 max-width로 유지된다. */
+    .msg-card { overflow: visible; }
+    .table-scroll { flex: 0 0 auto; min-height: auto; }
+    #threadList { overflow-y: visible; scrollbar-gutter: auto; }
     .col-head { overflow-y: visible; scrollbar-gutter: auto; }
   }
   .head-stats { display: flex; gap: 8px; font-size: 11.5px; color: var(--ink-soft); }
@@ -433,18 +463,22 @@
         <button class="chip" data-status="처리완료" onclick="setStatusFilter('처리완료')">처리완료</button>
       </div>
     </div>
-    <div class="col-head">
-      <div class="select-col"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAllThreads(this.checked)" title="현재 페이지 전체 선택"></div>
-      <div>일시</div>
-      <div>번호</div>
-      <div>이름</div>
-      <div>내용</div>
-      <div>처리상태</div>
-      <div>입력</div>
-      <div>접수번호</div>
-      <div></div>
+    <!-- 제목줄과 목록을 한 컨테이너에 넣어 가로 스크롤이 둘에 같이
+         걸리게 한다 — 따로 두면 가로로 밀 때 제목만 남고 어긋난다. -->
+    <div class="table-scroll">
+      <div class="col-head">
+        <div class="select-col"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAllThreads(this.checked)" title="현재 페이지 전체 선택"></div>
+        <div>일시</div>
+        <div>번호</div>
+        <div>이름</div>
+        <div>내용</div>
+        <div>처리상태</div>
+        <div>입력</div>
+        <div>접수번호</div>
+        <div></div>
+      </div>
+      <div id="threadList"><div class="empty">불러오는 중…</div></div>
     </div>
-    <div id="threadList"><div class="empty">불러오는 중…</div></div>
   </div>
 </div>
 
