@@ -23,13 +23,17 @@ REM Get today's date as YYYY-MM-DD via PowerShell, since %date% format
 REM depends on the system locale and isn't reliable to parse.
 for /f %%d in ('powershell -NoProfile -Command "(Get-Date).ToString(\"yyyy-MM-dd\")"') do set "TODAY=%%d"
 
-REM Start the Flask dashboard server (app.py) in the background, no window,
-REM with stdout/stderr appended to a log file named for today's date.
-start "" /b cmd /c python app.py >> "logs\app_%TODAY%.log" 2>&1
+REM Start the Flask dashboard server (app.py) fully detached from this
+REM window, with no window of its own, via PowerShell's Start-Process
+REM -WindowStyle Hidden. (cmd's own "start" command can't do this cleanly:
+REM "start /b" shares this window's console, which then keeps this window
+REM open even after "exit" below; "start" without /b opens a new console
+REM for the child but silently drops stdout/stderr redirection for it.)
+REM stdout and stderr go to separate log files named for today's date.
+powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'app.py' -WindowStyle Hidden -RedirectStandardOutput 'logs\app_%TODAY%.log' -RedirectStandardError 'logs\app_%TODAY%.err.log'"
 
-REM Start the phone notification watcher (watch_daemon.py) in the background,
-REM no window, with stdout/stderr appended to a log file named for today's date.
-start "" /b cmd /c python watch_daemon.py >> "logs\watch_daemon_%TODAY%.log" 2>&1
+REM Start the phone notification watcher (watch_daemon.py) the same way.
+powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'watch_daemon.py' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
 
 REM Both processes keep running in the background after this script exits.
 REM Check logs\app_%TODAY%.log and logs\watch_daemon_%TODAY%.log to see what
