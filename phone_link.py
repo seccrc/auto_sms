@@ -441,8 +441,20 @@ def send_message(phone_number: str, body: str):
             minimize_window(win)
 
 
+def _call_on_poll(on_poll, polled_ok: bool):
+    """감시 루프가 매 주기 끝에 부르는 훅. 감시 자체가 이것 때문에 멈추면
+    안 되므로 예외는 로그만 남기고 삼킨다."""
+    if on_poll is None:
+        return
+    try:
+        on_poll(polled_ok)
+    except Exception as e:
+        print(f"[감시] on_poll 훅에서 오류가 났지만 감시는 계속합니다: {e!r}")
+
+
 def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int = 20,
-                        hide_after_start: bool = False, seen_bodies_by_phone: dict = None):
+                        hide_after_start: bool = False, seen_bodies_by_phone: dict = None,
+                        on_poll=None):
     """대화 목록 상위 max_conversations개를 주기적으로 훑어서, 마지막
     메시지 미리보기가 바뀐(=새 메시지가 온) 대화를 발견하면
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
@@ -500,11 +512,13 @@ def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int 
             hidden_already = True
             win = _reconnect_after_failure(win, keep_hidden=True)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
             print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
+        _call_on_poll(on_poll, polled_ok)
         time.sleep(poll_interval)
 
 
 def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
-                         hide_after_start: bool = False, seen_lines_by_sender: dict = None):
+                         hide_after_start: bool = False, seen_lines_by_sender: dict = None,
+                         on_poll=None):
     """홈 화면 "알림" 패널(NotificationsListScrollHost)을 주기적으로 훑어서
     새 문자 알림을 발견하면 (그 알림 카드에 새로 쌓인 줄마다 한 번씩)
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
@@ -551,7 +565,12 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
     서버에 이미 저장된 내용으로 이 리스트를 미리 채워서 넘기면
     (watch_daemon.py의 _load_recent_seen() 참고), 알림은 그대로 두면서도
     중복 전송을 막을 수 있다. 안 주면 빈 상태로 시작한다(기존 동작과
-    동일)."""
+    동일).
+
+    on_poll(polled_ok)를 넘기면 매 폴링 주기가 끝날 때마다 호출한다 —
+    새 문자가 있든 없든 무조건 불리므로, "감시가 살아있다"는 신호를
+    서버에 보내는 용도(watch_daemon.py의 heartbeat)로 쓴다. 여기서 나는
+    예외는 감시 자체를 멈추지 않도록 삼킨다."""
     win = _connect_main_window()
     _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
     if seen_lines_by_sender is None:
@@ -588,6 +607,7 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
             hidden_already = True
             win = _reconnect_after_failure(win, keep_hidden=True)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
             print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
+        _call_on_poll(on_poll, polled_ok)
         time.sleep(poll_interval)
 
 

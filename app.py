@@ -90,19 +90,39 @@ def _build_threads(rows: list) -> list:
 # ── 수신 메시지 ──────────────────────────────────────────
 @app.route("/api/messages", methods=["GET"])
 def api_list_messages():
-    """최근 메시지 목록. phone 파라미터를 주면 그 번호와의 대화만 반환."""
-    limit = request.args.get("limit", 100, type=int)
+    """메시지 목록. phone을 주면 그 번호와의 대화만 반환한다.
+
+    since를 주면(YYYY-MM-DD) 그 날짜 00:00 이후에 저장된 것만 돌려준다 —
+    화면의 기간 선택(오늘/이번 주/이번 달/전체)이 쓰는 값이다. 예전에는
+    limit=100으로만 잘라서, 몇 달 쌓이면 지난달 민원은 목록에도 검색에도
+    아예 안 나오는 문제가 있었다(검색·페이지네이션이 전부 받아온 100건
+    안에서만 도는 구조라서). 이제 기간으로 끊어서 그 안은 전부 내려주고,
+    limit은 한 번에 너무 많이 실어보내지 않기 위한 상한으로만 남긴다.
+
+    ⚠ 기간을 좁히면 _build_threads()가 볼 수 있는 범위도 같이 좁아진다 —
+    답신이 기간 안에 있는데 그 답신이 달린 민원이 기간 밖이면 답신만 따로
+    떨어진 스레드로 보인다(thread_id로 묶인 것은 영향 없음). 원래 limit
+    방식에도 있던 한계고, 기간을 넓히면 자연히 해소되므로 그대로 둔다."""
+    limit = request.args.get("limit", 2000, type=int)
     phone = request.args.get("phone", "").strip()
-    conn = get_db()
+    since = request.args.get("since", "").strip()
+
+    where = []
+    params = []
     if phone:
-        rows = conn.execute(
-            "SELECT * FROM messages WHERE phone_number=? ORDER BY id DESC LIMIT ?",
-            (phone, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        where.append("phone_number=?")
+        params.append(phone)
+    if since:
+        where.append("created_at >= ?")
+        params.append(f"{since} 00:00:00")
+    sql = "SELECT * FROM messages"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+
+    conn = get_db()
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return jsonify({"threads": _build_threads([dict(r) for r in rows])})
 
@@ -454,6 +474,52 @@ def api_delete_template(tid):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
+
+
+# ── 감시 데몬 상태 (heartbeat) ──────────────────────────────
+# watch_daemon.py가 이 초 간격(--interval 기본 5초)보다 훨씬 오래
+# heartbeat를 안 보내면 감시가 멈춘 걸로 본다. 폴링 한두 번 놓치는 정도는
+# 화면을 읽다 느려진 것일 수 있어서 넉넉하게 잡는다.
+WATCHER_STALE_SECONDS = 60
+
+
+@app.route("/api/heartbeat", methods=["POST"])
+def api_heartbeat():
+    """watch_daemon.py가 매 폴링 주기마다 호출한다 — 자세한 이유는
+    watch_daemon.make_heartbeat() 참고. 마지막 시각과 그 주기가 정상
+    폴링이었는지를 settings에 남겨두고, 대시보드가 /api/status로 읽어간다."""
+    data = request.get_json(force=True, silent=True) or {}
+    set_setting("watcher_last_seen", now_local())
+    set_setting("watcher_last_ok", "1" if data.get("polled_ok") else "0")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    """대시보드 상단에 띄울 운영 상태 — 감시 데몬이 살아있는지, 지금이
+    업무시간인지, 자동발송이 켜져 있는지. 대시보드는 이 셋을 조합해서
+    "감시 중단됨" 배너나 "업무시간인데 자동발송 켜짐" 경고를 띄운다."""
+    last_seen = get_setting("watcher_last_seen", "")
+    seconds_ago = None
+    if last_seen:
+        try:
+            seconds_ago = int((datetime.now() - datetime.strptime(last_seen, "%Y-%m-%d %H:%M:%S")).total_seconds())
+        except ValueError:
+            seconds_ago = None
+    # heartbeat를 한 번도 받은 적 없으면(seconds_ago가 None) 감시가 도는지
+    # 알 수 없는 상태다 — "정상"으로 단정하지 않고 alive=False로 둬서
+    # 화면이 확인을 요구하게 한다.
+    alive = seconds_ago is not None and seconds_ago <= WATCHER_STALE_SECONDS
+    return jsonify({
+        "watcher": {
+            "alive": alive,
+            "polling_ok": get_setting("watcher_last_ok", "0") == "1",
+            "last_seen": last_seen,
+            "seconds_ago": seconds_ago,
+        },
+        "business_hours_now": _is_business_hours(),
+        "auto_reply_enabled": get_setting("auto_reply_enabled", "0") == "1",
+    })
 
 
 # ── 업무외 자동발송 설정 ────────────────────────────────────
