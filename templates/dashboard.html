@@ -62,19 +62,17 @@
      쪽/헤더 위치는 그대로 유지됨). */
   .layout { display: grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; flex: 1 1 auto; overflow-y: auto; } }
-  /* 업무외 자동발송 카드는 항상 고정, 상용문구 카드는 "상용문구 관리" 제목만
-     고정하고 그 아래(목록+입력 폼)만 자기 영역 안에서 스크롤 */
-  .rail { display: flex; flex-direction: column; gap: 20px; min-height: 0; }
+  /* 필터·업무외 자동발송·상용문구 관리 세 카드가 각자 정한 높이대로 쌓이고,
+     합친 높이가 오른쪽 민원 목록 카드보다 길어지면 레일 전체가 그 안에서만
+     스크롤된다 — 카드 하나를 억지로 눌러 채우면(예전처럼 상용문구 카드만
+     남은 공간에 맞춰 늘어나는 방식) 위 카드가 늘어난 만큼 밀려서 화면 밖으로
+     사라지는 문제가 있었다. */
+  .rail { display: flex; flex-direction: column; gap: 20px; min-height: 0; overflow-y: auto; }
   .rail > .card { flex: 0 0 auto; }
-  .rail > .card.card-scroll {
-    flex: 1 1 auto; min-height: 0; overflow: hidden;
-    display: flex; flex-direction: column;
-  }
-  .rail > .card.card-scroll > h2 { flex: 0 0 auto; }
-  .card-scroll-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   @media (max-width: 900px) {
-    .rail > .card.card-scroll { flex: 0 0 auto; overflow: visible; }
-    .card-scroll-body { overflow: visible; }
+    /* 900px 아래에서는 .layout 자체가(레일 포함) 페이지째로 세로 스크롤되므로
+       레일만 따로 스크롤 영역을 두면 스크롤이 두 겹으로 겹친다. */
+    .rail { overflow-y: visible; }
   }
 
   .card {
@@ -499,20 +497,18 @@
       </select>
     </div>
 
-    <div class="card card-scroll">
+    <div class="card">
       <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>상용문구 관리</h2>
-      <div class="card-scroll-body">
-        <div id="templateList"><div class="empty">불러오는 중…</div></div>
-        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
-          <input type="hidden" id="tplEditId">
-          <label>문구 제목</label>
-          <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
-          <label>문구 내용</label>
-          <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
-          <div class="row">
-            <button class="btn-primary" onclick="saveTemplate()">저장</button>
-            <button class="btn-ghost" onclick="resetTemplateForm()">초기화</button>
-          </div>
+      <div id="templateList"><div class="empty">불러오는 중…</div></div>
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+        <input type="hidden" id="tplEditId">
+        <label>문구 제목</label>
+        <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
+        <label>문구 내용</label>
+        <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
+        <div class="row">
+          <button class="btn-primary" onclick="saveTemplate()">저장</button>
+          <button class="btn-ghost" onclick="resetTemplateForm()">초기화</button>
         </div>
       </div>
     </div>
