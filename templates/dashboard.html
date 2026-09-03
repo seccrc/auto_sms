@@ -60,7 +60,7 @@
   /* 왼쪽 고정폭 사이드레일(설정류: 자동발송·상용문구) + 오른쪽 메인(민원 목록) —
      둘 다 화면 높이에 맞춰 각자 내부에서 스크롤한다(한쪽이 길어져도 다른
      쪽/헤더 위치는 그대로 유지됨). */
-  .layout { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
+  .layout { display: grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; flex: 1 1 auto; overflow-y: auto; } }
   /* 업무외 자동발송 카드는 항상 고정, 상용문구 카드는 "상용문구 관리" 제목만
      고정하고 그 아래(목록+입력 폼)만 자기 영역 안에서 스크롤 */
@@ -199,19 +199,33 @@
     #threadList { overflow-y: visible; scrollbar-gutter: auto; }
     .col-head { overflow-y: visible; scrollbar-gutter: auto; }
   }
-  .head-stats { display: flex; gap: 8px; font-size: 11.5px; color: var(--ink-soft); }
-  .head-stats span { background: var(--paper); border-radius: 999px; padding: 3px 10px; font-variant-numeric: tabular-nums; }
+  /* 상단 KPI 카드 — 오늘 접수/미처리/처리완료율을 큰 숫자로 먼저 보여준다.
+     레일의 필터 패널(처리상태·기간)과 짝을 이루는, 운영 현황을 한눈에
+     훑기 위한 조밀한 레이아웃의 핵심 요소. */
+  .kpis { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .kpi {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow-sm); padding: 12px 16px;
+  }
+  .kpi-lbl { font-size: 11px; font-weight: 700; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .kpi-val { font-family: var(--font-mono); font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .kpi-warn { background: var(--bad-soft); border-color: #f0c8c2; }
+  .kpi-warn .kpi-lbl, .kpi-warn .kpi-val { color: var(--bad); }
+  .kpi-good { background: var(--good-soft); border-color: #bfe3d4; }
+  .kpi-good .kpi-lbl, .kpi-good .kpi-val { color: var(--good); }
+  @media (max-width: 700px) { .kpis { grid-template-columns: 1fr; } }
+
   .merge-bar { display: none; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); }
   .merge-bar button { padding: 5px 10px; font-size: 12px; }
   .merge-bar .btn-primary:disabled { background: #9fb0e0; cursor: default; }
   .thread { border-top: 1px solid var(--line); }
   .msg-row, .col-head {
     display: grid; grid-template-columns: 22px 128px 100px 70px 1fr 96px 116px 130px 34px;
-    gap: 10px; align-items: start; padding: 12px 20px;
+    gap: 10px; align-items: start; padding: 9px 20px;
   }
   .col-head {
     flex: 0 0 auto;
-    padding: 10px 20px; align-items: center; border-top: 1px solid var(--line);
+    padding: 8px 20px; align-items: center; border-top: 1px solid var(--line);
     font-size: 11px; font-weight: 800; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .02em;
   }
   .col-head > div { text-align: center; }
@@ -305,55 +319,49 @@
   .watcher-chip.is-warn .watcher-dot { background: var(--mark); }
   .top-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 
-  /* 기간 선택 + 처리상태 필터 — 하나의 옅은 툴바 안에 두 그룹을 세로선으로
-     나눠 담아서, 개별 버튼들이 아니라 "필터 도구"로 한눈에 읽히게 한다. */
-  .filter-row {
-    flex: 0 0 auto; display: flex; align-items: center; gap: 18px;
-    padding: 10px 20px; flex-wrap: wrap;
-    background: var(--surface-2); border-bottom: 1px solid var(--line);
-  }
-  .filter-group { display: flex; align-items: center; gap: 7px; }
-  .filter-group + .filter-group { padding-left: 18px; border-left: 1px solid var(--line); }
-  .filter-group > .filter-label {
+  /* 처리상태 + 기간 필터 — 예전에는 표 위 툴바에 세그먼트+칩으로 늘어놨지만,
+     운영 대시보드형 레이아웃에서는 레일의 필터 패널 안에 세로 목록으로 옮겨
+     KPI 카드·필터·표를 한 화면에서 위→왼쪽→오른쪽 순서로 훑게 한다. */
+  .filter-section { margin-bottom: 16px; }
+  .filter-section:last-child { margin-bottom: 0; }
+  .filter-section-label {
     font-size: 10.5px; font-weight: 800; color: var(--ink-faint);
-    text-transform: uppercase; letter-spacing: .06em; margin-right: 1px;
+    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px;
   }
 
-  /* 기간 — 상호 배타적 단일 선택이라 나열된 알약이 아니라 하나의 캡슐
-     안에서 칸을 나눠 고르는 세그먼트 컨트롤로 표현한다(라디오처럼
-     "이 중 하나"라는 게 형태로도 드러남). */
-  .segment {
-    display: inline-flex; background: var(--surface); border: 1px solid var(--line);
-    border-radius: 9px; padding: 2px; gap: 1px;
-  }
-  .segment button {
-    padding: 5px 12px; font-size: 12px; font-weight: 600; color: var(--ink-soft);
-    background: transparent; border-radius: 7px; border: none;
+  /* 처리상태 — 각 행에 표의 처리상태 알약(.status-pill)과 같은 색 점을 둬서
+     "이 점을 누르면 이 색이 달린 것만 보인다"는 관계가 눈으로 바로 읽히게
+     한다. 전체/미처리는 특정 상태가 아니므로 중립·경고색으로 둔다. */
+  .status-list { display: flex; flex-direction: column; gap: 1px; }
+  .status-row {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 7px 9px; border: none; border-radius: 8px; background: transparent;
+    font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); cursor: pointer;
     transition: background .12s ease, color .12s ease;
   }
-  .segment button:hover { color: var(--accent); }
-  .segment button.active { background: var(--accent); color: #fff; box-shadow: var(--shadow-sm); }
+  .status-row:hover { background: var(--surface-2); }
+  .status-row.active { background: var(--ink); color: #fff; }
+  .status-row-main { display: flex; align-items: center; gap: 8px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--ink-faint); flex: 0 0 auto; }
+  .status-dot[data-tone="pending"] { background: var(--bad); }
+  .status-dot[data-tone="accepted"] { background: var(--accent); }
+  .status-dot[data-tone="forwarded"] { background: var(--mark); }
+  .status-dot[data-tone="assigned"] { background: #6d3fa0; }
+  .status-dot[data-tone="done"] { background: var(--good); }
+  .count-badge { font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+  .status-row.active .count-badge { color: rgba(255,255,255,.75); }
 
-  /* 처리상태 칩 — 목록 안 처리상태 알약(.status-pill)과 같은 색을 써서,
-     "이 칩을 누르면 이 색이 달린 것만 보인다"는 관계가 눈으로 바로
-     읽히게 한다. 전체/미처리는 특정 상태가 아니므로 중립색으로 둔다. */
-  .chip {
-    padding: 5px 12px; font-size: 12px; font-weight: 600; border-radius: 999px;
-    background: var(--surface); color: var(--ink-soft); border: 1px solid var(--line);
-    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  /* 기간 — 상호 배타적 단일 선택. */
+  .period-list { display: flex; flex-direction: column; gap: 1px; }
+  .period-list button {
+    width: 100%; text-align: left; padding: 7px 9px; border: none; border-radius: 8px;
+    background: transparent; font-family: inherit; font-size: 12.5px; font-weight: 600;
+    color: var(--ink-soft); cursor: pointer; transition: background .12s ease, color .12s ease;
   }
-  .chip:hover { border-color: var(--accent); color: var(--accent); }
-  .chip.active { background: var(--ink-soft); color: #fff; border-color: var(--ink-soft); }
-  /* 스타일 훅은 화면에 보이는 한글 값(data-status)이 아니라 고정된 ASCII
-     토큰(data-tone)에 건다 — 상태 이름 문구가 바뀌어도 색 규칙은 그대로
-     유지되게 하기 위해서다. */
-  .chip[data-tone="accepted"].active { background: var(--accent); border-color: var(--accent); }
-  .chip[data-tone="forwarded"].active { background: var(--mark); border-color: var(--mark); }
-  .chip[data-tone="assigned"].active { background: #6d3fa0; border-color: #6d3fa0; }
-  .chip[data-tone="done"].active { background: var(--good); border-color: var(--good); }
-  .chip .chip-count { opacity: .85; margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .period-list button:hover { background: var(--surface-2); }
+  .period-list button.active { background: var(--accent-soft); color: var(--accent-deep); }
   @media (prefers-reduced-motion: reduce) {
-    .segment button, .chip { transition: none; }
+    .status-row, .period-list button { transition: none; }
   }
 
   /* 마지막으로 본 이후 새로 들어온 민원 */
@@ -422,8 +430,59 @@
 
 <div class="banners" id="banners"></div>
 
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-lbl">오늘 접수</div>
+    <div class="kpi-val" id="statToday">0</div>
+  </div>
+  <div class="kpi kpi-warn">
+    <div class="kpi-lbl">미처리</div>
+    <div class="kpi-val" id="statPending">0</div>
+  </div>
+  <div class="kpi kpi-good">
+    <div class="kpi-lbl">처리완료율</div>
+    <div class="kpi-val" id="statRate">0%</div>
+  </div>
+</div>
+
 <div class="layout">
   <div class="rail">
+    <div class="card">
+      <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg>필터</h2>
+      <div class="filter-section">
+        <div class="filter-section-label">처리상태</div>
+        <div class="status-list">
+          <button class="status-row active" data-status="" onclick="setStatusFilter('')">
+            <span class="status-row-main"><span class="status-dot"></span>전체</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="__pending__" onclick="setStatusFilter('__pending__')">
+            <span class="status-row-main"><span class="status-dot" data-tone="pending"></span>미처리</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="접수" onclick="setStatusFilter('접수')">
+            <span class="status-row-main"><span class="status-dot" data-tone="accepted"></span>접수</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="부서전달" onclick="setStatusFilter('부서전달')">
+            <span class="status-row-main"><span class="status-dot" data-tone="forwarded"></span>부서전달</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="담당자확인" onclick="setStatusFilter('담당자확인')">
+            <span class="status-row-main"><span class="status-dot" data-tone="assigned"></span>담당자확인</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="처리완료" onclick="setStatusFilter('처리완료')">
+            <span class="status-row-main"><span class="status-dot" data-tone="done"></span>처리완료</span><span class="count-badge">0</span>
+          </button>
+        </div>
+      </div>
+      <div class="filter-section">
+        <div class="filter-section-label">기간</div>
+        <div class="period-list">
+          <button data-period="today" onclick="setPeriod('today')">오늘</button>
+          <button data-period="week" onclick="setPeriod('week')">이번 주</button>
+          <button class="active" data-period="month" onclick="setPeriod('month')">이번 달</button>
+          <button data-period="all" onclick="setPeriod('all')">전체</button>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>업무외 자동발송</h2>
       <div class="status-toggle">
@@ -462,10 +521,6 @@
   <div class="msg-card">
     <div class="msg-card-head">
       <h2><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>민원 문자 목록</h2>
-      <div class="head-stats" id="headStats">
-        <span id="statToday">오늘 접수 0건</span>
-        <span id="statPending">미처리 0건</span>
-      </div>
       <div class="merge-bar" id="mergeBar">
         <span id="mergeCount"></span>
         <button class="btn-primary" id="mergeBtn" onclick="mergeSelectedThreads()" disabled>선택한 민원 병합</button>
@@ -479,26 +534,6 @@
         <button class="search-clear" type="button" onclick="clearSearch()" title="검색어 지우기">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
-      </div>
-    </div>
-    <div class="filter-row">
-      <div class="filter-group">
-        <span class="filter-label">기간</span>
-        <div class="segment">
-          <button data-period="today" onclick="setPeriod('today')">오늘</button>
-          <button data-period="week" onclick="setPeriod('week')">이번 주</button>
-          <button class="active" data-period="month" onclick="setPeriod('month')">이번 달</button>
-          <button data-period="all" onclick="setPeriod('all')">전체</button>
-        </div>
-      </div>
-      <div class="filter-group">
-        <span class="filter-label">상태</span>
-        <button class="chip active" data-status="" onclick="setStatusFilter('')">전체</button>
-        <button class="chip" data-status="__pending__" onclick="setStatusFilter('__pending__')">미처리<span class="chip-count" id="chipCountPending"></span></button>
-        <button class="chip" data-tone="accepted" data-status="접수" onclick="setStatusFilter('접수')">접수</button>
-        <button class="chip" data-tone="forwarded" data-status="부서전달" onclick="setStatusFilter('부서전달')">부서전달</button>
-        <button class="chip" data-tone="assigned" data-status="담당자확인" onclick="setStatusFilter('담당자확인')">담당자확인</button>
-        <button class="chip" data-tone="done" data-status="처리완료" onclick="setStatusFilter('처리완료')">처리완료</button>
       </div>
     </div>
     <!-- 제목줄과 목록을 한 컨테이너에 넣어 가로 스크롤이 둘에 같이

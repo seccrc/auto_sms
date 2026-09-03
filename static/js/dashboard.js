@@ -311,19 +311,32 @@ function todayLocalDateStr() {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+// KPI 카드(오늘 접수/미처리/처리완료율)와 왼쪽 필터 패널의 처리상태별
+// 개수를 한 번에 계산한다 — 필터링 전 lastThreads 전체를 기준으로 세어야
+// "지금 접수를 눌러도 이만큼 더 있다"는 개수가 필터 결과와 상관없이
+// 항상 맞기 때문에, threadMatchesStatus() 필터를 거치기 전에 호출한다.
 function updateHeadStats() {
     const today = todayLocalDateStr();
+    const counts = { '': 0, '__pending__': 0 };
+    STATUS_OPTIONS.forEach(s => counts[s] = 0);
     let todayCount = 0;
-    let pendingCount = 0;
     for (const t of lastThreads) {
         const m = t.complaint;
         if (m.direction !== 'in') continue;  // 실제 민원(수신)만 집계 — 답신만 있는 orphan 스레드는 제외
         if ((m.created_at || '').startsWith(today)) todayCount++;
-        if ((m.status || '접수') !== '처리완료') pendingCount++;
+        const s = m.status || '접수';
+        counts['']++;
+        if (s !== '처리완료') counts['__pending__']++;
+        if (counts[s] !== undefined) counts[s]++;
     }
-    document.getElementById('statToday').textContent = `오늘 접수 ${todayCount}건`;
-    document.getElementById('statPending').textContent = `미처리 ${pendingCount}건`;
-    document.getElementById('chipCountPending').textContent = pendingCount ? ` ${pendingCount}` : '';
+    document.getElementById('statToday').textContent = `${todayCount}`;
+    document.getElementById('statPending').textContent = `${counts['__pending__']}`;
+    const rate = counts[''] ? Math.round((counts['처리완료'] / counts['']) * 100) : 0;
+    document.getElementById('statRate').textContent = `${rate}%`;
+    document.querySelectorAll('.status-row').forEach(row => {
+        const badge = row.querySelector('.count-badge');
+        if (badge) badge.textContent = counts[row.dataset.status] ?? 0;
+    });
 }
 
 // 마지막으로 본 민원 id보다 큰 것들을 "새로 온 민원"으로 표시해둔다.
