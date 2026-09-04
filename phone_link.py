@@ -463,11 +463,19 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
     to_box.wait("exists enabled visible", timeout=timeout)
 
     # 번호 입력 후 나오는 연락처 후보를 엔터로 확정해야 하는데, 화면마다
-    # 동작이 다를 수 있어 실패할 수 있다 — 그래서 입력 후 실제로 그 칸에
-    # 뭔가 채워졌는지(placeholder "받는 사람"이 아니라 실제 값으로
-    # 바뀌었는지) 확인하고, 안 됐으면 한 번 더 시도한다. 그래도 안 되면
-    # "받는 사람"이 빈 채로 본문만 입력되고 조용히 발송 시도하는 사고로
-    # 이어지므로, 여기서 예외를 던져 발송 자체를 멈춘다.
+    # 동작이 다를 수 있어 실패할 수 있다 — 그래서 입력 후 실제로 받는
+    # 사람이 확정됐는지 확인하고, 안 됐으면 한 번 더 시도한다.
+    #
+    # ⚠ 예전엔 이 칸(to_box) 자체에 "글자가 남아있는지"로 성공 여부를
+    # 판단했는데, 이게 거꾸로였다 — 실제로 받는 사람이 확정되면(엔터로
+    # 연락처 칩이 만들어지면) to_box 자신의 텍스트는 다음 받는 사람을
+    # 더 입력할 수 있게 다시 빈 칸으로 돌아간다. 그러니 성공했는데도
+    # "비어있으니 실패"로 잘못 판단해서 재시도 루프가 또 돌았고, 결국
+    # 같은 번호를 두 번 타이핑하는(실제로 관찰됨) 결과로 이어졌다.
+    #
+    # 진짜 확인해야 할 건 "받는 사람이 확정돼서 본문 입력창(compose)이
+    # 열렸는가"이므로, 그걸 직접 기다린다 — send_message()가 이 함수
+    # 다음에 어차피 확인하는 것과 같은 신호라 이 시점에 확인해도 안전하다.
     for attempt in range(2):
         to_box.click_input()
         to_box.type_keys(phone_number, with_spaces=True)
@@ -478,11 +486,10 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
             pass
         time.sleep(0.5)
         try:
-            filled = bool(_clean_bidi(to_box.window_text()))
-        except Exception:
-            filled = False
-        if filled:
+            win.child_window(**_COMPOSE_BOX_CRITERIA).wait("exists enabled visible", timeout=3)
             return
+        except Exception:
+            continue
 
     raise RuntimeError(
         f"받는 사람 칸에 번호({phone_number})가 제대로 입력되지 않았습니다 — "
