@@ -25,11 +25,18 @@
     --bad-soft: #fae7e4;
     --mark: #9c6b08;
     --mark-soft: #f9efd5;
+    --purple: #6d3fa0;
+    --purple-soft: #f1eafa;
+    --gray: #5b6472;
+    --gray-soft: #e9ecf2;
     --radius: 12px;
     --shadow-sm: 0 1px 2px rgba(20,22,29,.06), 0 1px 1px rgba(20,22,29,.04);
     --shadow-md: 0 14px 32px -14px rgba(20,22,29,.18), 0 3px 8px -3px rgba(20,22,29,.08);
     --font-ui: 'IBM Plex Sans KR', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', 'Segoe UI', sans-serif;
     --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    /* 민원 목록 표가 찌그러지지 않고 유지해야 하는 최소 너비 —
+       .table-scroll 설명 참고. 컬럼 폭을 바꾸면 이 값도 같이 맞춰야 한다. */
+    --table-min-w: 1020px;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -57,21 +64,19 @@
   /* 왼쪽 고정폭 사이드레일(설정류: 자동발송·상용문구) + 오른쪽 메인(민원 목록) —
      둘 다 화면 높이에 맞춰 각자 내부에서 스크롤한다(한쪽이 길어져도 다른
      쪽/헤더 위치는 그대로 유지됨). */
-  .layout { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
+  .layout { display: grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; flex: 1 1 auto; overflow-y: auto; } }
-  /* 업무외 자동발송 카드는 항상 고정, 상용문구 카드는 "상용문구 관리" 제목만
-     고정하고 그 아래(목록+입력 폼)만 자기 영역 안에서 스크롤 */
-  .rail { display: flex; flex-direction: column; gap: 20px; min-height: 0; }
+  /* 필터·업무외 자동발송·상용문구 관리 세 카드가 각자 정한 높이대로 쌓이고,
+     합친 높이가 오른쪽 민원 목록 카드보다 길어지면 레일 전체가 그 안에서만
+     스크롤된다 — 카드 하나를 억지로 눌러 채우면(예전처럼 상용문구 카드만
+     남은 공간에 맞춰 늘어나는 방식) 위 카드가 늘어난 만큼 밀려서 화면 밖으로
+     사라지는 문제가 있었다. */
+  .rail { display: flex; flex-direction: column; gap: 20px; min-height: 0; overflow-y: auto; }
   .rail > .card { flex: 0 0 auto; }
-  .rail > .card.card-scroll {
-    flex: 1 1 auto; min-height: 0; overflow: hidden;
-    display: flex; flex-direction: column;
-  }
-  .rail > .card.card-scroll > h2 { flex: 0 0 auto; }
-  .card-scroll-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   @media (max-width: 900px) {
-    .rail > .card.card-scroll { flex: 0 0 auto; overflow: visible; }
-    .card-scroll-body { overflow: visible; }
+    /* 900px 아래에서는 .layout 자체가(레일 포함) 페이지째로 세로 스크롤되므로
+       레일만 따로 스크롤 영역을 두면 스크롤이 두 겹으로 겹친다. */
+    .rail { overflow-y: visible; }
   }
 
   .card {
@@ -141,6 +146,10 @@
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
     display: flex; flex-direction: column; min-height: 0; overflow: hidden;
     box-shadow: var(--shadow-md);
+    /* 그리드 항목은 기본값(min-width:auto)이면 안쪽 내용(표의 최소 너비)만큼
+       늘어나버려서, 표가 자기 안에서 가로 스크롤되지 않고 카드째 밖으로
+       삐져나간다. 0으로 풀어야 표가 카드 폭에 맞춰 스크롤된다. */
+    min-width: 0;
   }
   .msg-card-head { flex: 0 0 auto; padding: 18px 20px 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .msg-card-head h2 { font-size: 15px; margin: 0; display: flex; align-items: center; gap: 9px; }
@@ -159,21 +168,66 @@
   }
   .search-clear:hover { background: var(--surface-2); color: var(--ink-soft); }
   .search-row.has-value .search-clear { display: flex; }
-  #threadList { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
-  @media (max-width: 900px) { #threadList { overflow: visible; } }
-  .head-stats { display: flex; gap: 8px; font-size: 11.5px; color: var(--ink-soft); }
-  .head-stats span { background: var(--paper); border-radius: 999px; padding: 3px 10px; font-variant-numeric: tabular-nums; }
+  /* 컬럼 9개가 다 들어가려면 이만큼은 있어야 한다(고정폭 696 + 간격 80 +
+     좌우 여백 40 + 스크롤바 15 + 내용칸 최소 190). 창이 이보다 좁으면
+     칸을 찌그러뜨리는 대신 가로로 스크롤한다 — 예전에는 억지로 우겨넣느라
+     "내용" 칸이 0px까지 줄어 본문이 안 보이거나 뒤쪽 컬럼이 제목줄과
+     어긋났다. */
+  .table-scroll {
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+    overflow-x: auto; overflow-y: hidden;
+    /* 카드 밖으로 삐져나가지 않고 자기 안에서 가로 스크롤되게 한다 —
+       카드의 overflow:hidden에 기대면 좁은 화면에서 세로까지 잘려서
+       아래쪽 민원에 아예 접근할 수 없게 된다. */
+    max-width: 100%;
+  }
+  /* 목록에 세로 스크롤바가 생기면 그만큼(보통 15px) 행이 좁아지는데 제목줄은
+     안 좁아져서, 처리상태·입력·접수번호가 제목보다 왼쪽으로 밀려 보였다.
+     양쪽 다 scrollbar-gutter로 같은 폭을 항상 비워두면 스크롤 여부와
+     상관없이 컬럼이 맞는다. */
+  #threadList {
+    flex: 1 1 auto; overflow-y: auto; min-height: 0;
+    min-width: var(--table-min-w); scrollbar-gutter: stable;
+  }
+  .col-head { overflow-y: auto; scrollbar-gutter: stable; min-width: var(--table-min-w); }
+  @media (max-width: 900px) {
+    /* 좁은 화면에서는 페이지(.layout)가 통째로 세로 스크롤되므로, 표는
+       높이를 내용만큼 그대로 갖게 둔다(flex: 0 0 auto). overflow-x가
+       auto면 overflow-y에 visible을 줘도 auto로 바뀌어 표가 자기 높이
+       안에 갇혀버리기 때문에, 높이 쪽을 풀어주는 방식으로 처리한다.
+       가로 스크롤은 표 자신의 max-width로 유지된다. */
+    .msg-card { overflow: visible; }
+    .table-scroll { flex: 0 0 auto; min-height: auto; }
+    #threadList { overflow-y: visible; scrollbar-gutter: auto; }
+    .col-head { overflow-y: visible; scrollbar-gutter: auto; }
+  }
+  /* 상단 KPI 카드 — 오늘 접수/미처리/처리완료율을 큰 숫자로 먼저 보여준다.
+     레일의 필터 패널(처리상태·기간)과 짝을 이루는, 운영 현황을 한눈에
+     훑기 위한 조밀한 레이아웃의 핵심 요소. */
+  .kpis { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .kpi {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow-sm); padding: 12px 16px;
+  }
+  .kpi-lbl { font-size: 11px; font-weight: 700; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .kpi-val { font-family: var(--font-mono); font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .kpi-warn { background: var(--bad-soft); border-color: #f0c8c2; }
+  .kpi-warn .kpi-lbl, .kpi-warn .kpi-val { color: var(--bad); }
+  .kpi-good { background: var(--good-soft); border-color: #bfe3d4; }
+  .kpi-good .kpi-lbl, .kpi-good .kpi-val { color: var(--good); }
+  @media (max-width: 700px) { .kpis { grid-template-columns: 1fr; } }
+
   .merge-bar { display: none; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); }
   .merge-bar button { padding: 5px 10px; font-size: 12px; }
   .merge-bar .btn-primary:disabled { background: #9fb0e0; cursor: default; }
   .thread { border-top: 1px solid var(--line); }
   .msg-row, .col-head {
     display: grid; grid-template-columns: 22px 128px 100px 70px 1fr 96px 116px 130px 34px;
-    gap: 10px; align-items: start; padding: 12px 20px;
+    gap: 10px; align-items: start; padding: 9px 20px;
   }
   .col-head {
     flex: 0 0 auto;
-    padding: 10px 20px; align-items: center; border-top: 1px solid var(--line);
+    padding: 8px 20px; align-items: center; border-top: 1px solid var(--line);
     font-size: 11px; font-weight: 800; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .02em;
   }
   .col-head > div { text-align: center; }
@@ -181,7 +235,7 @@
   .select-col input { margin: 0; cursor: pointer; }
   .msg-row .meta { font-size: 12px; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
   .msg-row .phone { font-size: 12.5px; font-weight: 600; font-family: var(--font-mono); }
-  .msg-row .name { font-size: 12px; color: var(--ink-soft); }
+  .msg-row .name { font-size: 12px; color: var(--ink-soft); text-align: center; }
   .msg-body { font-size: 13px; line-height: 1.55; white-space: pre-line; }
   .msg-body .pill, .reply-body .pill { margin-right: 6px; }
   .status-col, .input-col, .receipt-col {
@@ -208,10 +262,15 @@
   .send-box textarea { flex: 1; margin-bottom: 0; font-family: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; resize: vertical; min-height: 34px; }
   .send-box button { flex: 0 0 64px; width: 64px; padding: 0; }
   .status-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
-  .st-접수 { background: var(--accent-soft); color: var(--accent); }
-  .st-부서전달 { background: var(--mark-soft); color: var(--mark); }
-  .st-담당자확인 { background: #f1eafa; color: #6d3fa0; }
-  .st-처리완료 { background: var(--good-soft); color: var(--good); }
+  /* 상태 값 자체에 공백·괄호가 있어(예: "답변완료(조치예정)") 값을 그대로
+     클래스 이름으로 못 쓴다 — 그래서 data-tone(dashboard.js의 STATUS_TONES)
+     으로 색을 정한다. */
+  .status-pill[data-tone="answered"] { background: var(--accent-soft); color: var(--accent); }
+  .status-pill[data-tone="review"] { background: var(--purple-soft); color: var(--purple); }
+  .status-pill[data-tone="notdue"] { background: var(--gray-soft); color: var(--gray); }
+  .status-pill[data-tone="rejected"] { background: var(--bad-soft); color: var(--bad); }
+  .status-pill[data-tone="done"] { background: var(--good-soft); color: var(--good); }
+  .status-pill[data-tone="transferred"] { background: var(--mark-soft); color: var(--mark); }
 
   .pagination { display: flex; justify-content: center; align-items: center; gap: 4px; padding: 14px 20px; flex-wrap: wrap; }
   .page-btn {
@@ -221,24 +280,248 @@
   .page-btn:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
   .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .page-btn:disabled { color: var(--ink-faint); cursor: default; }
+
+  /* 우측 상단 톱니바퀴 설정 메뉴 */
+  .top-bar { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 4px; }
+  .settings-menu { position: relative; flex: 0 0 auto; }
+  .settings-btn {
+    width: 34px; height: 34px; padding: 0; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--line); color: var(--ink-soft);
+    display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm);
+  }
+  .settings-btn:hover { background: var(--accent-soft); color: var(--accent); }
+  .settings-panel {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow-md); padding: 8px; min-width: 160px;
+  }
+  .settings-panel button { width: 100%; text-align: left; }
+
+  /* 상단 경고 배너 (감시 중단 / 업무시간 중 자동발송 켜짐) */
+  .banners { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .banner {
+    display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+    border-radius: 10px; font-size: 13px; font-weight: 600; border: 1px solid transparent;
+  }
+  .banner svg { flex: 0 0 auto; }
+  .banner .banner-text { flex: 1; }
+  .banner button { padding: 6px 12px; font-size: 12px; flex: 0 0 auto; }
+  .banner-bad { background: var(--bad-soft); color: var(--bad); border-color: #f0c8c2; }
+  .banner-bad button { background: var(--bad); color: #fff; }
+  .banner-warn { background: var(--mark-soft); color: var(--mark); border-color: #ecd9a8; }
+  .banner-warn button { background: var(--mark); color: #fff; }
+
+  /* 감시 데몬 상태 표시 (헤더 우측) */
+  .watcher-chip {
+    display: flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; background: var(--surface); border: 1px solid var(--line);
+    color: var(--ink-soft); white-space: nowrap;
+  }
+  .watcher-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); flex: 0 0 auto; }
+  .watcher-chip.is-ok { color: var(--good); border-color: #bfe3d4; }
+  .watcher-chip.is-ok .watcher-dot { background: var(--good); }
+  .watcher-chip.is-bad { color: var(--bad); border-color: #f0c8c2; background: var(--bad-soft); }
+  .watcher-chip.is-bad .watcher-dot { background: var(--bad); }
+  .watcher-chip.is-warn { color: var(--mark); border-color: #ecd9a8; background: var(--mark-soft); }
+  .watcher-chip.is-warn .watcher-dot { background: var(--mark); }
+  .top-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+
+  /* 처리상태 + 기간 필터 — 예전에는 표 위 툴바에 세그먼트+칩으로 늘어놨지만,
+     운영 대시보드형 레이아웃에서는 레일의 필터 패널 안에 세로 목록으로 옮겨
+     KPI 카드·필터·표를 한 화면에서 위→왼쪽→오른쪽 순서로 훑게 한다. */
+  .filter-section { margin-bottom: 16px; }
+  .filter-section:last-child { margin-bottom: 0; }
+  .filter-section-label {
+    font-size: 10.5px; font-weight: 800; color: var(--ink-faint);
+    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px;
+  }
+
+  /* 처리상태 — 각 행에 표의 처리상태 알약(.status-pill)과 같은 색 점을 둬서
+     "이 점을 누르면 이 색이 달린 것만 보인다"는 관계가 눈으로 바로 읽히게
+     한다. 전체/미처리는 특정 상태가 아니므로 중립·경고색으로 둔다. */
+  .status-list { display: flex; flex-direction: column; gap: 1px; }
+  .status-row {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 7px 9px; border: none; border-radius: 8px; background: transparent;
+    font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); cursor: pointer;
+    transition: background .12s ease, color .12s ease;
+  }
+  .status-row:hover { background: var(--surface-2); }
+  .status-row.active { background: var(--ink); color: #fff; }
+  .status-row-main { display: flex; align-items: center; gap: 8px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--ink-faint); flex: 0 0 auto; }
+  .status-dot[data-tone="unresolved"] { background: var(--bad); }
+  .status-dot[data-tone="answered"] { background: var(--accent); }
+  .status-dot[data-tone="review"] { background: var(--purple); }
+  .status-dot[data-tone="notdue"] { background: var(--gray); }
+  .status-dot[data-tone="rejected"] { background: var(--bad); }
+  .status-dot[data-tone="done"] { background: var(--good); }
+  .status-dot[data-tone="transferred"] { background: var(--mark); }
+  .count-badge { font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+  .status-row.active .count-badge { color: rgba(255,255,255,.75); }
+
+  /* 기간 — 상호 배타적 단일 선택. */
+  .period-list { display: flex; flex-direction: column; gap: 1px; }
+  .period-list button {
+    width: 100%; text-align: left; padding: 7px 9px; border: none; border-radius: 8px;
+    background: transparent; font-family: inherit; font-size: 12.5px; font-weight: 600;
+    color: var(--ink-soft); cursor: pointer; transition: background .12s ease, color .12s ease;
+  }
+  .period-list button:hover { background: var(--surface-2); }
+  .period-list button.active { background: var(--accent-soft); color: var(--accent-deep); }
+  @media (prefers-reduced-motion: reduce) {
+    .status-row, .period-list button { transition: none; }
+  }
+
+  /* 기간 — "직접 선택"을 누르면 나오는 시작일~종료일 입력 상자. */
+  .custom-range { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 8px 9px; background: var(--surface-2); border-radius: 8px; }
+  .custom-range[hidden] { display: none; }
+  .custom-range .row { display: flex; align-items: center; gap: 6px; }
+  .custom-range input[type=date] {
+    flex: 1; min-width: 0; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px;
+    font-family: inherit; font-size: 12px; background: #fff; margin-bottom: 0;
+  }
+  .custom-range .sep { color: var(--ink-faint); font-size: 12px; flex: 0 0 auto; }
+  .custom-range button { align-self: flex-end; padding: 6px 12px; font-size: 12px; }
+
+  /* 마지막으로 본 이후 새로 들어온 민원 */
+  .thread.is-new { background: linear-gradient(90deg, rgba(36,82,201,.07), transparent 55%); }
+  .thread.is-new .msg-row { position: relative; }
+  .thread.is-new .msg-row::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent);
+  }
+  .new-badge {
+    display: inline-block; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 5px;
+    background: var(--accent); color: #fff; margin-right: 6px; vertical-align: 1px; letter-spacing: .02em;
+  }
+
+  /* 토스트 알림 (alert 대체) */
+  #toastArea {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 60;
+    display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none;
+  }
+  .toast {
+    padding: 10px 16px; border-radius: 10px; font-size: 13px; font-weight: 600;
+    box-shadow: var(--shadow-md); background: var(--ink); color: #fff; max-width: 80vw;
+    animation: toast-in .16s ease-out;
+  }
+  .toast.is-ok { background: var(--good); }
+  .toast.is-bad { background: var(--bad); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* 확인 대화상자 (confirm 대체) */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(20,22,29,.42); z-index: 70;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-box {
+    background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-md);
+    padding: 20px 22px; width: min(400px, 100%);
+  }
+  .modal-box h3 { margin: 0 0 8px; font-size: 15px; }
+  .modal-box p { margin: 0 0 18px; font-size: 13px; color: var(--ink-soft); line-height: 1.6; white-space: pre-line; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 </style>
 </head>
 <body>
 
-<div class="brand" style="margin-bottom: 4px;">
-  <div class="brand-mark">
-    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+<div class="top-bar">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+    </div>
+    <h1 style="margin: 0;">동구청 민원문자 관리 시스템</h1>
   </div>
-  <h1 style="margin: 0;">동구청 민원문자 관리 시스템</h1>
+  <div class="top-right">
+    <div class="watcher-chip" id="watcherChip" title="휴대폰 문자 수신 감시 상태">
+      <span class="watcher-dot"></span><span id="watcherText">감시 상태 확인 중…</span>
+    </div>
+  <div class="settings-menu" id="settingsMenu">
+    <button class="settings-btn" onclick="toggleSettingsMenu(event)" title="설정">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <div class="settings-panel" id="settingsPanel" style="display:none;">
+      <button class="btn-danger" onclick="shutdownServer()">서버 종료</button>
+    </div>
+  </div>
+  </div>
 </div>
 <p class="sub">휴대폰과 연결 앱으로 수신한 문자를 자동 저장하고, 민원별로 답신을 이어서 발송합니다.</p>
+
+<div class="banners" id="banners"></div>
+
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-lbl">오늘 접수</div>
+    <div class="kpi-val" id="statToday">0</div>
+  </div>
+  <div class="kpi kpi-warn">
+    <div class="kpi-lbl">미처리</div>
+    <div class="kpi-val" id="statPending">0</div>
+  </div>
+  <div class="kpi kpi-good">
+    <div class="kpi-lbl">처리완료율</div>
+    <div class="kpi-val" id="statRate">0%</div>
+  </div>
+</div>
 
 <div class="layout">
   <div class="rail">
     <div class="card">
+      <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg>필터</h2>
+      <div class="filter-section">
+        <div class="filter-section-label">처리상태</div>
+        <div class="status-list">
+          <button class="status-row active" data-status="" onclick="setStatusFilter('')">
+            <span class="status-row-main"><span class="status-dot"></span>전체</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="__pending__" onclick="setStatusFilter('__pending__')">
+            <span class="status-row-main"><span class="status-dot" data-tone="unresolved"></span>미처리</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="답변완료(조치예정)" onclick="setStatusFilter('답변완료(조치예정)')">
+            <span class="status-row-main"><span class="status-dot" data-tone="answered"></span>답변완료(조치예정)</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="중장기검토" onclick="setStatusFilter('중장기검토')">
+            <span class="status-row-main"><span class="status-dot" data-tone="review"></span>중장기검토</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="처리기한 미도래" onclick="setStatusFilter('처리기한 미도래')">
+            <span class="status-row-main"><span class="status-dot" data-tone="notdue"></span>처리기한 미도래</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="처리불가" onclick="setStatusFilter('처리불가')">
+            <span class="status-row-main"><span class="status-dot" data-tone="rejected"></span>처리불가</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="처리완료" onclick="setStatusFilter('처리완료')">
+            <span class="status-row-main"><span class="status-dot" data-tone="done"></span>처리완료</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="타기관 이송" onclick="setStatusFilter('타기관 이송')">
+            <span class="status-row-main"><span class="status-dot" data-tone="transferred"></span>타기관 이송</span><span class="count-badge">0</span>
+          </button>
+        </div>
+      </div>
+      <div class="filter-section">
+        <div class="filter-section-label">기간</div>
+        <div class="period-list">
+          <button data-period="today" onclick="setPeriod('today')">오늘</button>
+          <button data-period="week" onclick="setPeriod('week')">이번 주</button>
+          <button class="active" data-period="month" onclick="setPeriod('month')">이번 달</button>
+          <button data-period="all" onclick="setPeriod('all')">전체</button>
+          <button data-period="custom" onclick="setPeriod('custom')">직접 선택</button>
+        </div>
+        <div class="custom-range" id="customRangeBox" hidden>
+          <div class="row">
+            <input type="date" id="customFrom">
+            <span class="sep">~</span>
+            <input type="date" id="customTo">
+          </div>
+          <button class="btn-ghost" onclick="applyCustomRange()">적용</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>업무외 자동발송</h2>
       <div class="status-toggle">
-        <span class="toggle-label">평일 09:00~18:00 외 시간 자동 응답</span>
+        <span class="toggle-label">업무외 시간 자동 응답 설정</span>
         <label class="switch">
           <input type="checkbox" id="autoReplyEnabled" onchange="saveAutoReplySettings()">
           <span class="track"></span>
@@ -251,20 +534,18 @@
       </select>
     </div>
 
-    <div class="card card-scroll">
+    <div class="card">
       <h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>상용문구 관리</h2>
-      <div class="card-scroll-body">
-        <div id="templateList"><div class="empty">불러오는 중…</div></div>
-        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
-          <input type="hidden" id="tplEditId">
-          <label>문구 제목</label>
-          <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
-          <label>문구 내용</label>
-          <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
-          <div class="row">
-            <button class="btn-primary" onclick="saveTemplate()">저장</button>
-            <button class="btn-ghost" onclick="resetTemplateForm()">초기화</button>
-          </div>
+      <div id="templateList"><div class="empty">불러오는 중…</div></div>
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+        <input type="hidden" id="tplEditId">
+        <label>문구 제목</label>
+        <input type="text" id="tplTitleInput" placeholder="예: 접수 확인 안내">
+        <label>문구 내용</label>
+        <textarea id="tplBodyInput" placeholder="실제 발송될 문구"></textarea>
+        <div class="row">
+          <button class="btn-primary" onclick="saveTemplate()">저장</button>
+          <button class="btn-ghost" onclick="resetTemplateForm()">초기화</button>
         </div>
       </div>
     </div>
@@ -273,10 +554,6 @@
   <div class="msg-card">
     <div class="msg-card-head">
       <h2><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>민원 문자 목록</h2>
-      <div class="head-stats" id="headStats">
-        <span id="statToday">오늘 접수 0건</span>
-        <span id="statPending">미처리 0건</span>
-      </div>
       <div class="merge-bar" id="mergeBar">
         <span id="mergeCount"></span>
         <button class="btn-primary" id="mergeBtn" onclick="mergeSelectedThreads()" disabled>선택한 민원 병합</button>
@@ -292,20 +569,26 @@
         </button>
       </div>
     </div>
-    <div class="col-head">
-      <div class="select-col"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAllThreads(this.checked)" title="현재 페이지 전체 선택"></div>
-      <div>시각</div>
-      <div>번호</div>
-      <div>이름</div>
-      <div>내용</div>
-      <div>처리상태</div>
-      <div>입력</div>
-      <div>접수번호</div>
-      <div></div>
+    <!-- 제목줄과 목록을 한 컨테이너에 넣어 가로 스크롤이 둘에 같이
+         걸리게 한다 — 따로 두면 가로로 밀 때 제목만 남고 어긋난다. -->
+    <div class="table-scroll">
+      <div class="col-head">
+        <div class="select-col"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAllThreads(this.checked)" title="현재 페이지 전체 선택"></div>
+        <div>일시</div>
+        <div>번호</div>
+        <div>이름</div>
+        <div>내용</div>
+        <div>처리상태</div>
+        <div>입력</div>
+        <div>접수번호</div>
+        <div></div>
+      </div>
+      <div id="threadList"><div class="empty">불러오는 중…</div></div>
     </div>
-    <div id="threadList"><div class="empty">불러오는 중…</div></div>
   </div>
 </div>
+
+<div id="toastArea"></div>
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>

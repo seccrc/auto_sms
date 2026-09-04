@@ -30,6 +30,13 @@ capture_location_auto.py의 국민신문고 화면처럼 "이름이 매번 바�
       수 있다는 뜻이니, 이 값으로 발송(send_message)할 때도 그대로 같은
       문자열을 쓰면(연락처 이름 기준으로 대화를 찾음) 정상 동작한다 —
       실제 화면에서 알림/대화목록 둘 다 같은 표시 이름을 쓰는 걸 확인했다.
+      ⚠ 이 목록은 가상화(virtualized)돼 있다 — --dump로 확인해보면 화면에
+      실제로 보이는(스크롤 안 해도 되는) 위쪽 항목들만 진짜 좌표를 갖고,
+      스크롤해야 보이는 아래쪽 항목들은 논리적으로는 ListItem으로 잡히는데
+      좌표가 전부 (0,0,0,0)으로 나온다 — 렌더링 자체가 안 됐다는 뜻이라
+      그 상태로 click_input()을 해도 아무 데도 안 눌린다. 실제로 목록
+      중간쯤의 대화를 클릭했는데 대화창이 전혀 안 열리는 사고가 있었다
+      (_open_conversation()의 스크롤 재시도 참고).
     - 새 메시지 버튼: Button(auto_id="NewMessageButton", title="새
       메시지(Ctrl+N)") — 단축키가 title에 붙어있어 정확히 일치하는
       title 문자열로 찾으면 실패하므로 auto_id로 찾는다.
@@ -82,7 +89,7 @@ import time
 # 리눅스/개발 환경에서는 실패한다. app.py의 /api/send 라우트가 이 모듈을
 # 함수 안에서 지연 import하는 것도 이 때문 — 그래야 대시보드 서버 자체는
 # 어떤 OS에서든 문제없이 뜬다.
-from pywinauto import findwindows
+from pywinauto import findwindows, mouse
 from pywinauto.application import Application, WindowSpecification
 from pywinauto import Desktop
 
@@ -333,6 +340,69 @@ def _phone_variants(phone_number: str) -> list:
     return list(dict.fromkeys(variants))
 
 
+def _row_is_rendered(row) -> bool:
+    """가상화된 목록에서 화면 밖(스크롤해야 보이는) 항목은 논리적으로는
+    트리에 잡히지만 실제로 그려지지 않아 화면 좌표가 (0,0,0,0)으로
+    나온다 — 그런 상태에서 click_input()을 해봐야 아무 데도 안 눌린다.
+    너비/높이가 0보다 커야 실제로 화면에 그려져서 클릭 가능한 상태로 본다."""
+    try:
+        rect = row.rectangle()
+        return rect.width() > 0 and rect.height() > 0
+    except Exception:
+        return False
+
+
+def _find_conversation_row(conv_list, variants):
+    """대화 목록에서 번호(들)와 일치하는 행 하나를 찾아 돌려준다. 없으면
+    None. 매번 목록을 새로 훑는다 — 가상화된 목록이라 스크롤한 뒤에는
+    이전에 잡아둔 요소 참조가 더 이상 화면의 실제 항목을 가리키지 않을
+    수 있어서다."""
+    try:
+        rows = conv_list.descendants(control_type="ListItem")
+    except Exception:
+        return None
+    for row in rows:
+        try:
+            title = _clean_bidi(row.window_text() or row.element_info.name)
+        except Exception:
+            continue
+        if any(title.startswith(f"{v}와의 대화 메시지 미리 보기") for v in variants):
+            return row
+    return None
+
+
+# 목록이 가상화돼 있어(_row_is_rendered 참고) 화면 밖 대화를 화면에 나타나게
+# 하려면 스크롤이 필요하다 — 최악의 경우(대화가 수백 건 쌓인 계정)까지
+# 감안해 넉넉하게 잡는다.
+_SCROLL_MAX_STEPS = 40
+
+
+def _scroll_until_rendered(conv_list, variants):
+    """대화 목록에서 번호와 일치하는 행이 화면에 실제로 나타날 때까지
+    마우스 휠로 스크롤한다. 마우스 휠(pywinauto.mouse.scroll)을 쓰는
+    이유: 이 목록(CVSListView) 자체가 UIA ScrollPattern을 구현했다는
+    보장이 없어 UIAWrapper.scroll()이 거부당할 수 있는데, 마우스 휠은
+    OS 입력 이벤트라 그 구현 여부와 무관하게 거의 모든 스크롤 가능한
+    UI에 먹힌다.
+
+    스크롤 방향(휠을 내리는 쪽 = wheel_dist 음수, 윈도우 표준 관례)을
+    먼저 절반만큼 시도하고, 그래도 안 보이면 반대 방향으로 나머지
+    절반을 마저 시도한다 — 이 관례가 혹시 반대로 동작하는 환경이 있어도
+    결국 찾아내기 위한 안전장치다."""
+    list_rect = conv_list.rectangle()
+    coords = ((list_rect.left + list_rect.right) // 2, (list_rect.top + list_rect.bottom) // 2)
+    for i in range(_SCROLL_MAX_STEPS):
+        row = _find_conversation_row(conv_list, variants)
+        if row is None:
+            return None  # 스크롤하는 사이 목록 자체가 바뀐 것으로 보임
+        if _row_is_rendered(row):
+            return row
+        wheel_dist = -3 if i < _SCROLL_MAX_STEPS // 2 else 3
+        mouse.scroll(coords=coords, wheel_dist=wheel_dist)
+        time.sleep(0.15)
+    return _find_conversation_row(conv_list, variants)
+
+
 def _open_conversation(win, phone_number: str, timeout: int = 10):
     """번호로 기존 대화를 찾아 열거나, 없으면 '새 메시지'로 새 대화를 만든다.
     대화 목록 행의 접근성 이름이 "{번호}와의 대화 메시지 미리 보기 ..."로
@@ -350,21 +420,38 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
     직접 훑어 _clean_bidi()로 정리한 텍스트로 비교한다."""
     conv_list = win.child_window(**_CONVERSATION_LIST_CRITERIA)
     variants = _phone_variants(phone_number)
-    try:
-        rows = conv_list.descendants(control_type="ListItem")
-    except Exception:
-        rows = []
-    for row in rows:
-        try:
-            title = _clean_bidi(row.window_text() or row.element_info.name)
-        except Exception:
-            continue
-        if any(title.startswith(f"{v}와의 대화 메시지 미리 보기") for v in variants):
-            row.click_input()
-            time.sleep(1)
-            return
 
-    # 기존 대화가 없으면 새 메시지 버튼으로 시작한다.
+    row = _find_conversation_row(conv_list, variants)
+    if row is not None and not _row_is_rendered(row):
+        # 가상화된 목록이라 화면 밖(스크롤해야 보이는) 항목은 좌표가 없어
+        # 클릭해도 반응이 없다 — 실제로 재현된 사고: 목록 중간쯤에 있는
+        # 대화를 클릭했는데 대화창이 전혀 안 열리고 "새 대화를 시작하거나
+        # 회신할 대화를 하나 선택하세요"라는 빈 화면 그대로 남아있었다.
+        row = _scroll_until_rendered(conv_list, variants)
+
+    if row is not None and _row_is_rendered(row):
+        # 화면에 나타난 뒤에도 클릭이 씹히거나(포커스가 없던 창이라 첫
+        # 클릭이 창 활성화로만 소비되는 경우 등) 대화창 렌더링이 느릴 수
+        # 있어, 클릭하고 1초만 무조건 쉰 뒤 "열렸겠지" 하고 그냥 넘어가면
+        # 안 된다 — 입력창(compose)이 실제로 나타났는지 확인하고, 안
+        # 나타났으면 한 번 더 클릭해서 재시도한다.
+        for attempt in range(2):
+            row.click_input()
+            try:
+                win.child_window(**_COMPOSE_BOX_CRITERIA).wait(
+                    "exists enabled visible", timeout=3 if attempt == 0 else timeout
+                )
+                return
+            except Exception:
+                continue
+        # 목록에서 찾아 클릭까지 했는데도 안 열리면 여기로 떨어진다 — 아래
+        # "새 메시지" 경로로 넘어가서 마지막으로 한 번 더 시도한다.
+
+    # 대화가 목록에 아예 없거나, 있어도(스크롤 끝까지 해도 화면에 안
+    # 나타나거나, 나타났는데 클릭이 안 먹어서) 열지 못했으면 여기로 온다.
+    # "새 메시지"에 같은 번호를 입력해도 앱이 알아서 기존 대화로 이어주므로
+    # (전화번호 기준으로 스레드가 하나로 유지됨 — 새 대화가 따로 생기지
+    # 않음), 이 경로가 마지막 안전장치 역할을 한다.
     btn = win.child_window(**_NEW_MESSAGE_BUTTON_CRITERIA)
     btn.wait("exists enabled visible", timeout=timeout)
     btn.click_input()
@@ -376,11 +463,19 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
     to_box.wait("exists enabled visible", timeout=timeout)
 
     # 번호 입력 후 나오는 연락처 후보를 엔터로 확정해야 하는데, 화면마다
-    # 동작이 다를 수 있어 실패할 수 있다 — 그래서 입력 후 실제로 그 칸에
-    # 뭔가 채워졌는지(placeholder "받는 사람"이 아니라 실제 값으로
-    # 바뀌었는지) 확인하고, 안 됐으면 한 번 더 시도한다. 그래도 안 되면
-    # "받는 사람"이 빈 채로 본문만 입력되고 조용히 발송 시도하는 사고로
-    # 이어지므로, 여기서 예외를 던져 발송 자체를 멈춘다.
+    # 동작이 다를 수 있어 실패할 수 있다 — 그래서 입력 후 실제로 받는
+    # 사람이 확정됐는지 확인하고, 안 됐으면 한 번 더 시도한다.
+    #
+    # ⚠ 예전엔 이 칸(to_box) 자체에 "글자가 남아있는지"로 성공 여부를
+    # 판단했는데, 이게 거꾸로였다 — 실제로 받는 사람이 확정되면(엔터로
+    # 연락처 칩이 만들어지면) to_box 자신의 텍스트는 다음 받는 사람을
+    # 더 입력할 수 있게 다시 빈 칸으로 돌아간다. 그러니 성공했는데도
+    # "비어있으니 실패"로 잘못 판단해서 재시도 루프가 또 돌았고, 결국
+    # 같은 번호를 두 번 타이핑하는(실제로 관찰됨) 결과로 이어졌다.
+    #
+    # 진짜 확인해야 할 건 "받는 사람이 확정돼서 본문 입력창(compose)이
+    # 열렸는가"이므로, 그걸 직접 기다린다 — send_message()가 이 함수
+    # 다음에 어차피 확인하는 것과 같은 신호라 이 시점에 확인해도 안전하다.
     for attempt in range(2):
         to_box.click_input()
         to_box.type_keys(phone_number, with_spaces=True)
@@ -391,11 +486,10 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
             pass
         time.sleep(0.5)
         try:
-            filled = bool(_clean_bidi(to_box.window_text()))
-        except Exception:
-            filled = False
-        if filled:
+            win.child_window(**_COMPOSE_BOX_CRITERIA).wait("exists enabled visible", timeout=3)
             return
+        except Exception:
+            continue
 
     raise RuntimeError(
         f"받는 사람 칸에 번호({phone_number})가 제대로 입력되지 않았습니다 — "
@@ -441,8 +535,20 @@ def send_message(phone_number: str, body: str):
             minimize_window(win)
 
 
+def _call_on_poll(on_poll, polled_ok: bool):
+    """감시 루프가 매 주기 끝에 부르는 훅. 감시 자체가 이것 때문에 멈추면
+    안 되므로 예외는 로그만 남기고 삼킨다."""
+    if on_poll is None:
+        return
+    try:
+        on_poll(polled_ok)
+    except Exception as e:
+        print(f"[감시] on_poll 훅에서 오류가 났지만 감시는 계속합니다: {e!r}")
+
+
 def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int = 20,
-                        hide_after_start: bool = False, seen_bodies_by_phone: dict = None):
+                        hide_after_start: bool = False, seen_bodies_by_phone: dict = None,
+                        on_poll=None):
     """대화 목록 상위 max_conversations개를 주기적으로 훑어서, 마지막
     메시지 미리보기가 바뀐(=새 메시지가 온) 대화를 발견하면
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
@@ -500,11 +606,13 @@ def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int 
             hidden_already = True
             win = _reconnect_after_failure(win, keep_hidden=True)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
             print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
+        _call_on_poll(on_poll, polled_ok)
         time.sleep(poll_interval)
 
 
 def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
-                         hide_after_start: bool = False, seen_lines_by_sender: dict = None):
+                         hide_after_start: bool = False, seen_lines_by_sender: dict = None,
+                         on_poll=None):
     """홈 화면 "알림" 패널(NotificationsListScrollHost)을 주기적으로 훑어서
     새 문자 알림을 발견하면 (그 알림 카드에 새로 쌓인 줄마다 한 번씩)
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
@@ -551,7 +659,12 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
     서버에 이미 저장된 내용으로 이 리스트를 미리 채워서 넘기면
     (watch_daemon.py의 _load_recent_seen() 참고), 알림은 그대로 두면서도
     중복 전송을 막을 수 있다. 안 주면 빈 상태로 시작한다(기존 동작과
-    동일)."""
+    동일).
+
+    on_poll(polled_ok)를 넘기면 매 폴링 주기가 끝날 때마다 호출한다 —
+    새 문자가 있든 없든 무조건 불리므로, "감시가 살아있다"는 신호를
+    서버에 보내는 용도(watch_daemon.py의 heartbeat)로 쓴다. 여기서 나는
+    예외는 감시 자체를 멈추지 않도록 삼킨다."""
     win = _connect_main_window()
     _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
     if seen_lines_by_sender is None:
@@ -588,6 +701,7 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
             hidden_already = True
             win = _reconnect_after_failure(win, keep_hidden=True)  # 최소화 직후 이전 참조가 무효화될 수 있어 미리 갱신
             print("[숨김] 첫 폴링을 마쳐 창을 최소화했습니다.")
+        _call_on_poll(on_poll, polled_ok)
         time.sleep(poll_interval)
 
 

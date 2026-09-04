@@ -31,6 +31,39 @@ import requests
 
 import phone_link
 
+# 감시 루프가 통째로 죽었을 때 다시 시작하기 전에 쉬는 시간. 휴대폰 연결
+# 앱이 닫혀 있는 등 원인이 바로 해소되지 않는 상황에서 재시작을 무한정
+# 빠르게 반복하며 로그만 쌓는 걸 막는다.
+RESTART_DELAY_SECONDS = 10
+
+
+def make_heartbeat(server: str):
+    """매 폴링 주기마다 "나 아직 살아있다"를 서버에 알리는 콜백을 만든다.
+
+    이게 없으면 이 데몬이 죽어도(휴대폰 연결 앱이 닫히거나, 블루투스가
+    끊기거나, COM 오류로 프로세스가 끝나거나) 대시보드는 그냥 "새 민원이
+    없는" 평소 화면과 똑같이 보여서, 실제로는 수신 문자가 하나도 저장되지
+    않는 상태를 아무도 눈치채지 못한다. 서버가 마지막 heartbeat 시각을
+    기억했다가 대시보드에 표시해주면(app.py의 /api/status 참고) 감시가
+    멈춘 걸 바로 알 수 있다.
+
+    polled_ok=False는 화면을 읽다 오류가 나서 그 주기를 건너뛴 경우다 —
+    프로세스는 살아있지만 실제로 감시는 못 하고 있는 상태라, 그대로
+    서버에 알려서 대시보드가 "정상"과 구분해 보여줄 수 있게 한다."""
+    def heartbeat(polled_ok: bool):
+        try:
+            requests.post(
+                f"{server}/api/heartbeat",
+                json={"polled_ok": bool(polled_ok)},
+                timeout=5,
+            )
+        except Exception as e:
+            # 서버가 잠깐 재시작 중일 수 있다 — 다음 주기에 또 보내므로
+            # 여기서는 조용히 넘어간다(매 주기 로그가 쌓이면 시끄럽다).
+            print(f"[heartbeat] 전송 실패(다음 주기에 재시도): {e!r}")
+
+    return heartbeat
+
 
 def make_reporter(server: str, merge_window: float = 0.0):
     """새 문자 한 줄을 받으면 기본적으로(merge_window=0) 감지 즉시 서버에
@@ -209,19 +242,34 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     reporter = make_reporter(args.server, merge_window=args.merge_window)
-    initial_seen = _load_recent_seen(args.server)
-    try:
-        if args.source == "notifications":
-            phone_link.watch_notifications(
-                reporter, poll_interval=args.interval, hide_after_start=args.hide,
-                seen_lines_by_sender=initial_seen,
-            )
-        else:
-            phone_link.watch_new_messages(
-                reporter, poll_interval=args.interval, hide_after_start=args.hide,
-                seen_bodies_by_phone=initial_seen,
-            )
-    except KeyboardInterrupt:
-        print("\n[종료] 합치는 중이던 메시지를 마저 저장합니다...")
-        reporter.flush_all()
-        raise
+    heartbeat = make_heartbeat(args.server)
+
+    # 감시 루프가 예외로 죽으면 그대로 프로세스가 끝나버려서, 그 뒤로 오는
+    # 문자를 아무도 저장하지 못하는 상태가 된다(휴대폰 연결 앱이 잠깐
+    # 닫히거나 COM 연결이 끊기면 실제로 일어난다). 루프 안에서 잡히는
+    # 오류는 phone_link가 이미 주기별로 처리하고 넘어가므로, 여기까지
+    # 올라온 건 감시를 아예 계속할 수 없게 된 상황이다 — 잠깐 쉬었다가
+    # 처음부터(창 다시 연결부터) 새로 시작한다.
+    while True:
+        try:
+            # 재시작할 때마다 다시 불러온다 — 그 사이 서버에 저장된 것까지
+            # 반영해야 알림 카드에 남아있는 예전 내용을 새 문자로 착각해
+            # 중복 저장하는 걸 막을 수 있다(_load_recent_seen() 참고).
+            initial_seen = _load_recent_seen(args.server)
+            if args.source == "notifications":
+                phone_link.watch_notifications(
+                    reporter, poll_interval=args.interval, hide_after_start=args.hide,
+                    seen_lines_by_sender=initial_seen, on_poll=heartbeat,
+                )
+            else:
+                phone_link.watch_new_messages(
+                    reporter, poll_interval=args.interval, hide_after_start=args.hide,
+                    seen_bodies_by_phone=initial_seen, on_poll=heartbeat,
+                )
+        except KeyboardInterrupt:
+            print("\n[종료] 합치는 중이던 메시지를 마저 저장합니다...")
+            reporter.flush_all()
+            raise
+        except Exception as e:
+            print(f"[감시 중단] 예상 못한 오류로 감시가 멈춰 {RESTART_DELAY_SECONDS}초 뒤 다시 시작합니다: {e!r}")
+            time.sleep(RESTART_DELAY_SECONDS)
