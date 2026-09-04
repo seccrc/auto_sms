@@ -25,6 +25,10 @@
     --bad-soft: #fae7e4;
     --mark: #9c6b08;
     --mark-soft: #f9efd5;
+    --purple: #6d3fa0;
+    --purple-soft: #f1eafa;
+    --gray: #5b6472;
+    --gray-soft: #e9ecf2;
     --radius: 12px;
     --shadow-sm: 0 1px 2px rgba(20,22,29,.06), 0 1px 1px rgba(20,22,29,.04);
     --shadow-md: 0 14px 32px -14px rgba(20,22,29,.18), 0 3px 8px -3px rgba(20,22,29,.08);
@@ -258,10 +262,15 @@
   .send-box textarea { flex: 1; margin-bottom: 0; font-family: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; resize: vertical; min-height: 34px; }
   .send-box button { flex: 0 0 64px; width: 64px; padding: 0; }
   .status-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
-  .st-접수 { background: var(--accent-soft); color: var(--accent); }
-  .st-부서전달 { background: var(--mark-soft); color: var(--mark); }
-  .st-담당자확인 { background: #f1eafa; color: #6d3fa0; }
-  .st-처리완료 { background: var(--good-soft); color: var(--good); }
+  /* 상태 값 자체에 공백·괄호가 있어(예: "답변완료(조치예정)") 값을 그대로
+     클래스 이름으로 못 쓴다 — 그래서 data-tone(dashboard.js의 STATUS_TONES)
+     으로 색을 정한다. */
+  .status-pill[data-tone="answered"] { background: var(--accent-soft); color: var(--accent); }
+  .status-pill[data-tone="review"] { background: var(--purple-soft); color: var(--purple); }
+  .status-pill[data-tone="notdue"] { background: var(--gray-soft); color: var(--gray); }
+  .status-pill[data-tone="rejected"] { background: var(--bad-soft); color: var(--bad); }
+  .status-pill[data-tone="done"] { background: var(--good-soft); color: var(--good); }
+  .status-pill[data-tone="transferred"] { background: var(--mark-soft); color: var(--mark); }
 
   .pagination { display: flex; justify-content: center; align-items: center; gap: 4px; padding: 14px 20px; flex-wrap: wrap; }
   .page-btn {
@@ -341,11 +350,13 @@
   .status-row.active { background: var(--ink); color: #fff; }
   .status-row-main { display: flex; align-items: center; gap: 8px; }
   .status-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--ink-faint); flex: 0 0 auto; }
-  .status-dot[data-tone="pending"] { background: var(--bad); }
-  .status-dot[data-tone="accepted"] { background: var(--accent); }
-  .status-dot[data-tone="forwarded"] { background: var(--mark); }
-  .status-dot[data-tone="assigned"] { background: #6d3fa0; }
+  .status-dot[data-tone="unresolved"] { background: var(--bad); }
+  .status-dot[data-tone="answered"] { background: var(--accent); }
+  .status-dot[data-tone="review"] { background: var(--purple); }
+  .status-dot[data-tone="notdue"] { background: var(--gray); }
+  .status-dot[data-tone="rejected"] { background: var(--bad); }
   .status-dot[data-tone="done"] { background: var(--good); }
+  .status-dot[data-tone="transferred"] { background: var(--mark); }
   .count-badge { font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
   .status-row.active .count-badge { color: rgba(255,255,255,.75); }
 
@@ -454,19 +465,25 @@
             <span class="status-row-main"><span class="status-dot"></span>전체</span><span class="count-badge">0</span>
           </button>
           <button class="status-row" data-status="__pending__" onclick="setStatusFilter('__pending__')">
-            <span class="status-row-main"><span class="status-dot" data-tone="pending"></span>미처리</span><span class="count-badge">0</span>
+            <span class="status-row-main"><span class="status-dot" data-tone="unresolved"></span>미처리</span><span class="count-badge">0</span>
           </button>
-          <button class="status-row" data-status="접수" onclick="setStatusFilter('접수')">
-            <span class="status-row-main"><span class="status-dot" data-tone="accepted"></span>접수</span><span class="count-badge">0</span>
+          <button class="status-row" data-status="답변완료(조치예정)" onclick="setStatusFilter('답변완료(조치예정)')">
+            <span class="status-row-main"><span class="status-dot" data-tone="answered"></span>답변완료(조치예정)</span><span class="count-badge">0</span>
           </button>
-          <button class="status-row" data-status="부서전달" onclick="setStatusFilter('부서전달')">
-            <span class="status-row-main"><span class="status-dot" data-tone="forwarded"></span>부서전달</span><span class="count-badge">0</span>
+          <button class="status-row" data-status="중장기검토" onclick="setStatusFilter('중장기검토')">
+            <span class="status-row-main"><span class="status-dot" data-tone="review"></span>중장기검토</span><span class="count-badge">0</span>
           </button>
-          <button class="status-row" data-status="담당자확인" onclick="setStatusFilter('담당자확인')">
-            <span class="status-row-main"><span class="status-dot" data-tone="assigned"></span>담당자확인</span><span class="count-badge">0</span>
+          <button class="status-row" data-status="처리기한 미도래" onclick="setStatusFilter('처리기한 미도래')">
+            <span class="status-row-main"><span class="status-dot" data-tone="notdue"></span>처리기한 미도래</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="처리불가" onclick="setStatusFilter('처리불가')">
+            <span class="status-row-main"><span class="status-dot" data-tone="rejected"></span>처리불가</span><span class="count-badge">0</span>
           </button>
           <button class="status-row" data-status="처리완료" onclick="setStatusFilter('처리완료')">
             <span class="status-row-main"><span class="status-dot" data-tone="done"></span>처리완료</span><span class="count-badge">0</span>
+          </button>
+          <button class="status-row" data-status="타기관 이송" onclick="setStatusFilter('타기관 이송')">
+            <span class="status-row-main"><span class="status-dot" data-tone="transferred"></span>타기관 이송</span><span class="count-badge">0</span>
           </button>
         </div>
       </div>

@@ -13,7 +13,18 @@ function formatDateTime(m) {
 }
 
 let templatesCache = [];
-const STATUS_OPTIONS = ['접수', '부서전달', '담당자확인', '처리완료'];
+const STATUS_OPTIONS = ['답변완료(조치예정)', '중장기검토', '처리기한 미도래', '처리불가', '처리완료', '타기관 이송'];
+// 상태 값에 공백·괄호가 들어 있어(예: "답변완료(조치예정)") 그대로 CSS 클래스
+// 이름으로 쓸 수 없다 — 그래서 색은 클래스가 아니라 data-tone 속성으로 준다.
+const STATUS_TONES = {
+    '답변완료(조치예정)': 'answered',
+    '중장기검토':         'review',
+    '처리기한 미도래':    'notdue',
+    '처리불가':           'rejected',
+    '처리완료':           'done',
+    '타기관 이송':        'transferred',
+};
+const DEFAULT_STATUS = '처리기한 미도래';
 const MANUAL_INPUT_OPTIONS = ['', '행정종합관찰제', '종합민원이력시스템'];
 
 // ── 알림(토스트) / 확인창 ──
@@ -275,7 +286,7 @@ function setStatusFilter(status) {
 
 function threadMatchesStatus(t) {
     if (!statusFilter) return true;
-    const s = t.complaint.status || '접수';
+    const s = t.complaint.status || DEFAULT_STATUS;
     if (statusFilter === '__pending__') return s !== '처리완료';
     return s === statusFilter;
 }
@@ -313,7 +324,7 @@ function todayLocalDateStr() {
 
 // KPI 카드(오늘 접수/미처리/처리완료율)와 왼쪽 필터 패널의 처리상태별
 // 개수를 한 번에 계산한다 — 필터링 전 lastThreads 전체를 기준으로 세어야
-// "지금 접수를 눌러도 이만큼 더 있다"는 개수가 필터 결과와 상관없이
+// "지금 필터를 눌러도 이만큼 더 있다"는 개수가 필터 결과와 상관없이
 // 항상 맞기 때문에, threadMatchesStatus() 필터를 거치기 전에 호출한다.
 function updateHeadStats() {
     const today = todayLocalDateStr();
@@ -324,7 +335,7 @@ function updateHeadStats() {
         const m = t.complaint;
         if (m.direction !== 'in') continue;  // 실제 민원(수신)만 집계 — 답신만 있는 orphan 스레드는 제외
         if ((m.created_at || '').startsWith(today)) todayCount++;
-        const s = m.status || '접수';
+        const s = m.status || DEFAULT_STATUS;
         counts['']++;
         if (s !== '처리완료') counts['__pending__']++;
         if (counts[s] !== undefined) counts[s]++;
@@ -595,12 +606,12 @@ function renderThreads() {
         let receiptHtml = '';
         let editBtnHtml = '';
         if (isComplaint) {
-            const statusVal = m.status || '접수';
+            const statusVal = m.status || DEFAULT_STATUS;
             statusHtml = editing
                 ? `<select onchange="updateMessageStatus(${m.id}, this.value)">
                        ${STATUS_OPTIONS.map(s => `<option value="${esc(s)}" ${s === statusVal ? 'selected' : ''}>${esc(s)}</option>`).join('')}
                    </select>`
-                : `<span class="status-pill st-${statusVal}">${esc(statusVal)}</span>`;
+                : `<span class="status-pill" data-tone="${STATUS_TONES[statusVal] || 'notdue'}">${esc(statusVal)}</span>`;
             inputHtml = editing
                 ? `<select class="cell-input" data-id="${m.id}" data-field="manual_input" onchange="saveMessageCell(this)">
                        ${MANUAL_INPUT_OPTIONS.map(o => `<option value="${esc(o)}" ${o === (m.manual_input || '') ? 'selected' : ''}>${o === '' ? '-' : esc(o)}</option>`).join('')}
