@@ -343,35 +343,21 @@ function threadMatchesSearch(t) {
     return fields.some(v => (v || '').toLowerCase().includes(searchQuery));
 }
 
-// created_at은 서버가 "YYYY-MM-DD HH:MM:SS"(로컬시각)로 내려주므로 같은 형식으로 오늘 날짜를 만들어 앞부분만 비교한다
-function todayLocalDateStr() {
-    const d = new Date();
-    const p = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-// KPI 카드(오늘 접수/미처리/처리완료율)와 왼쪽 필터 패널의 처리상태별
-// 개수를 한 번에 계산한다 — 필터링 전 lastThreads 전체를 기준으로 세어야
-// "지금 필터를 눌러도 이만큼 더 있다"는 개수가 필터 결과와 상관없이
-// 항상 맞기 때문에, threadMatchesStatus() 필터를 거치기 전에 호출한다.
+// 왼쪽 필터 패널의 처리상태별 개수를 계산한다 — 필터링 전 lastThreads
+// 전체를 기준으로 세어야 "지금 필터를 눌러도 이만큼 더 있다"는 개수가
+// 필터 결과와 상관없이 항상 맞기 때문에, threadMatchesStatus() 필터를
+// 거치기 전에 호출한다.
 function updateHeadStats() {
-    const today = todayLocalDateStr();
     const counts = { '': 0, '__pending__': 0 };
     STATUS_OPTIONS.forEach(s => counts[s] = 0);
-    let todayCount = 0;
     for (const t of lastThreads) {
         const m = t.complaint;
         if (m.direction !== 'in') continue;  // 실제 민원(수신)만 집계 — 답신만 있는 orphan 스레드는 제외
-        if ((m.created_at || '').startsWith(today)) todayCount++;
         const s = m.status || DEFAULT_STATUS;
         counts['']++;
         if (s !== '처리완료') counts['__pending__']++;
         if (counts[s] !== undefined) counts[s]++;
     }
-    document.getElementById('statToday').textContent = `${todayCount}`;
-    document.getElementById('statPending').textContent = `${counts['__pending__']}`;
-    const rate = counts[''] ? Math.round((counts['처리완료'] / counts['']) * 100) : 0;
-    document.getElementById('statRate').textContent = `${rate}%`;
     document.querySelectorAll('.status-row').forEach(row => {
         const badge = row.querySelector('.count-badge');
         if (badge) badge.textContent = counts[row.dataset.status] ?? 0;
