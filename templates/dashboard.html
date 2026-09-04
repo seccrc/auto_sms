@@ -373,6 +373,17 @@
     .status-row, .period-list button { transition: none; }
   }
 
+  /* 기간 — "직접 선택"을 누르면 나오는 시작일~종료일 입력 상자. */
+  .custom-range { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 8px 9px; background: var(--surface-2); border-radius: 8px; }
+  .custom-range[hidden] { display: none; }
+  .custom-range .row { display: flex; align-items: center; gap: 6px; }
+  .custom-range input[type=date] {
+    flex: 1; min-width: 0; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px;
+    font-family: inherit; font-size: 12px; background: #fff; margin-bottom: 0;
+  }
+  .custom-range .sep { color: var(--ink-faint); font-size: 12px; flex: 0 0 auto; }
+  .custom-range button { align-self: flex-end; padding: 6px 12px; font-size: 12px; }
+
   /* 마지막으로 본 이후 새로 들어온 민원 */
   .thread.is-new { background: linear-gradient(90deg, rgba(36,82,201,.07), transparent 55%); }
   .thread.is-new .msg-row { position: relative; }
@@ -494,6 +505,15 @@
           <button data-period="week" onclick="setPeriod('week')">이번 주</button>
           <button class="active" data-period="month" onclick="setPeriod('month')">이번 달</button>
           <button data-period="all" onclick="setPeriod('all')">전체</button>
+          <button data-period="custom" onclick="setPeriod('custom')">직접 선택</button>
+        </div>
+        <div class="custom-range" id="customRangeBox" hidden>
+          <div class="row">
+            <input type="date" id="customFrom">
+            <span class="sep">~</span>
+            <input type="date" id="customTo">
+          </div>
+          <button class="btn-ghost" onclick="applyCustomRange()">적용</button>
         </div>
       </div>
     </div>

@@ -231,7 +231,9 @@ let currentPageThreadIds = [];  // 전체선택 체크박스가 대상으로 삼
 const THREADS_PER_PAGE = 10;
 let currentPage = 1;  // 15초 자동 갱신으로 목록이 다시 그려져도 보던 페이지를 유지한다
 let searchQuery = '';  // 번호/이름/내용/처리상태/입력/접수번호 통합 검색어(소문자로 정규화해서 저장)
-let periodFilter = 'month';   // 서버에서 받아올 기간 — 오늘/이번 주/이번 달/전체
+let periodFilter = 'month';   // 서버에서 받아올 기간 — 오늘/이번 주/이번 달/전체/custom(직접 선택)
+let customFrom = '';  // periodFilter === 'custom'일 때의 시작일(YYYY-MM-DD)
+let customTo = '';    // periodFilter === 'custom'일 때의 종료일(YYYY-MM-DD)
 let statusFilter = '';        // 처리상태 칩 필터 ('' = 전체, '__pending__' = 처리완료가 아닌 것)
 
 // 마지막으로 화면을 본 시점 이후에 들어온 민원을 굵게 표시하기 위한 기준값.
@@ -247,9 +249,15 @@ let lastSeenComplaintId = Number(storedSeen || 0);
 let seenBaselineNeeded = storedSeen === null;
 let newComplaintIds = new Set();  // 이번에 "새로 온 것"으로 표시할 민원 id들
 
-// 기간 칩 → /api/messages?since=YYYY-MM-DD 로 넘길 시작 날짜.
-// 'all'이면 since를 아예 안 보내서 전체를 받는다.
-function periodSinceDate() {
+// 기간 칩 → /api/messages?since=YYYY-MM-DD&until=YYYY-MM-DD 로 넘길 날짜 범위.
+// 'all'이면 둘 다 비워서(null) 전체를 받는다. 'custom'은 직접 고른
+// 시작일/종료일을 그대로 쓴다 — 둘 다 포함(양 끝 날짜 포함)이며, 아직
+// 하나도 안 골랐으면(적용 전) since/until 둘 다 null이라 'all'과 같게
+// 동작한다.
+function periodDateRange() {
+    if (periodFilter === 'custom') {
+        return { since: customFrom || null, until: customTo || null };
+    }
     const d = new Date();
     if (periodFilter === 'today') {
         // 그대로 오늘
@@ -260,10 +268,11 @@ function periodSinceDate() {
     } else if (periodFilter === 'month') {
         d.setDate(1);
     } else {
-        return null;
+        return { since: null, until: null };
     }
     const p = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    const since = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    return { since, until: null };
 }
 
 function setPeriod(period) {
@@ -271,8 +280,27 @@ function setPeriod(period) {
     document.querySelectorAll('[data-period]').forEach(el => {
         el.classList.toggle('active', el.dataset.period === period);
     });
+    document.getElementById('customRangeBox').hidden = period !== 'custom';
     currentPage = 1;
-    loadMessages();   // 기간이 바뀌면 서버에서 다시 받아와야 한다
+    // 'custom'을 누른 시점엔 아직 날짜를 안 골랐을 수 있어서(적용 버튼을
+    // 눌러야 반영), 여기서 바로 다시 불러오지 않고 applyCustomRange()가
+    // 대신 불러온다.
+    if (period !== 'custom') {
+        loadMessages();   // 기간이 바뀌면 서버에서 다시 받아와야 한다
+    }
+}
+
+function applyCustomRange() {
+    const from = document.getElementById('customFrom').value;
+    const to = document.getElementById('customTo').value;
+    if (from && to && from > to) {
+        showToast('시작일이 종료일보다 늦습니다', 'bad');
+        return;
+    }
+    customFrom = from;
+    customTo = to;
+    currentPage = 1;
+    loadMessages();
 }
 
 function setStatusFilter(status) {
@@ -401,8 +429,11 @@ async function loadMessages() {
     if (a && (a.classList.contains('cell-input') || a.closest('.send-box'))) return;
     const listEl = document.getElementById('threadList');
     try {
-        const since = periodSinceDate();
-        const r = await fetch('/api/messages' + (since ? `?since=${since}` : ''));
+        const { since, until } = periodDateRange();
+        const qs = [];
+        if (since) qs.push(`since=${since}`);
+        if (until) qs.push(`until=${until}`);
+        const r = await fetch('/api/messages' + (qs.length ? `?${qs.join('&')}` : ''));
         const d = await r.json();
         lastThreads = d.threads || [];
         refreshNewComplaints();

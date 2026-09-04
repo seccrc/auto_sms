@@ -92,12 +92,15 @@ def _build_threads(rows: list) -> list:
 def api_list_messages():
     """메시지 목록. phone을 주면 그 번호와의 대화만 반환한다.
 
-    since를 주면(YYYY-MM-DD) 그 날짜 00:00 이후에 저장된 것만 돌려준다 —
-    화면의 기간 선택(오늘/이번 주/이번 달/전체)이 쓰는 값이다. 예전에는
-    limit=100으로만 잘라서, 몇 달 쌓이면 지난달 민원은 목록에도 검색에도
-    아예 안 나오는 문제가 있었다(검색·페이지네이션이 전부 받아온 100건
-    안에서만 도는 구조라서). 이제 기간으로 끊어서 그 안은 전부 내려주고,
-    limit은 한 번에 너무 많이 실어보내지 않기 위한 상한으로만 남긴다.
+    since를 주면(YYYY-MM-DD) 그 날짜 00:00 이후에 저장된 것만, until을
+    주면(YYYY-MM-DD) 그 날짜 23:59:59 이전에 저장된 것만 돌려준다 —
+    화면의 기간 선택(오늘/이번 주/이번 달/전체/직접 선택)이 쓰는 값이다.
+    직접 선택(커스텀 범위)만 since·until을 같이 보내고, 나머지 프리셋은
+    since만(전체는 둘 다 안 보냄) 보낸다. 예전에는 limit=100으로만
+    잘라서, 몇 달 쌓이면 지난달 민원은 목록에도 검색에도 아예 안 나오는
+    문제가 있었다(검색·페이지네이션이 전부 받아온 100건 안에서만 도는
+    구조라서). 이제 기간으로 끊어서 그 안은 전부 내려주고, limit은 한
+    번에 너무 많이 실어보내지 않기 위한 상한으로만 남긴다.
 
     ⚠ 기간을 좁히면 _build_threads()가 볼 수 있는 범위도 같이 좁아진다 —
     답신이 기간 안에 있는데 그 답신이 달린 민원이 기간 밖이면 답신만 따로
@@ -106,6 +109,7 @@ def api_list_messages():
     limit = request.args.get("limit", 2000, type=int)
     phone = request.args.get("phone", "").strip()
     since = request.args.get("since", "").strip()
+    until = request.args.get("until", "").strip()
 
     where = []
     params = []
@@ -115,6 +119,9 @@ def api_list_messages():
     if since:
         where.append("created_at >= ?")
         params.append(f"{since} 00:00:00")
+    if until:
+        where.append("created_at <= ?")
+        params.append(f"{until} 23:59:59")
     sql = "SELECT * FROM messages"
     if where:
         sql += " WHERE " + " AND ".join(where)
