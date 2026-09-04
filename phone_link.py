@@ -422,43 +422,36 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
     variants = _phone_variants(phone_number)
 
     row = _find_conversation_row(conv_list, variants)
-    if row is not None:
+    if row is not None and not _row_is_rendered(row):
         # 가상화된 목록이라 화면 밖(스크롤해야 보이는) 항목은 좌표가 없어
         # 클릭해도 반응이 없다 — 실제로 재현된 사고: 목록 중간쯤에 있는
         # 대화를 클릭했는데 대화창이 전혀 안 열리고 "새 대화를 시작하거나
         # 회신할 대화를 하나 선택하세요"라는 빈 화면 그대로 남아있었다.
-        if not _row_is_rendered(row):
-            row = _scroll_until_rendered(conv_list, variants)
+        row = _scroll_until_rendered(conv_list, variants)
 
-        if row is not None and _row_is_rendered(row):
-            # 화면에 나타난 뒤에도 클릭이 씹히거나(포커스가 없던 창이라
-            # 첫 클릭이 창 활성화로만 소비되는 경우 등) 대화창 렌더링이
-            # 느릴 수 있어, 클릭하고 1초만 무조건 쉰 뒤 "열렸겠지" 하고
-            # 그냥 넘어가면 안 된다 — 입력창(compose)이 실제로 나타났는지
-            # 확인하고, 안 나타났으면 한 번 더 클릭해서 재시도한다.
-            for attempt in range(2):
-                row.click_input()
-                try:
-                    win.child_window(**_COMPOSE_BOX_CRITERIA).wait(
-                        "exists enabled visible", timeout=3 if attempt == 0 else timeout
-                    )
-                    return
-                except Exception:
-                    continue
-            raise RuntimeError(
-                f"{phone_number}와의 기존 대화를 목록에서 찾아 클릭했지만 대화창이 "
-                "열리지 않았습니다(입력창이 나타나지 않음) — 휴대폰과 연결 앱이 "
-                "느리게 반응했거나 클릭이 씹혔을 수 있습니다. 다시 시도해주세요."
-            )
-        elif row is not None:
-            raise RuntimeError(
-                f"{phone_number}와의 기존 대화를 목록에서 찾았지만, 최대한 스크롤해도 "
-                "화면에 나타나지 않았습니다 — 대화 목록이 너무 길거나 스크롤이 "
-                "예상과 다르게 동작했을 수 있습니다."
-            )
-        # row가 스크롤 도중 None이 됐으면(목록이 바뀜) 새 메시지 흐름으로 넘어간다.
+    if row is not None and _row_is_rendered(row):
+        # 화면에 나타난 뒤에도 클릭이 씹히거나(포커스가 없던 창이라 첫
+        # 클릭이 창 활성화로만 소비되는 경우 등) 대화창 렌더링이 느릴 수
+        # 있어, 클릭하고 1초만 무조건 쉰 뒤 "열렸겠지" 하고 그냥 넘어가면
+        # 안 된다 — 입력창(compose)이 실제로 나타났는지 확인하고, 안
+        # 나타났으면 한 번 더 클릭해서 재시도한다.
+        for attempt in range(2):
+            row.click_input()
+            try:
+                win.child_window(**_COMPOSE_BOX_CRITERIA).wait(
+                    "exists enabled visible", timeout=3 if attempt == 0 else timeout
+                )
+                return
+            except Exception:
+                continue
+        # 목록에서 찾아 클릭까지 했는데도 안 열리면 여기로 떨어진다 — 아래
+        # "새 메시지" 경로로 넘어가서 마지막으로 한 번 더 시도한다.
 
-    # 기존 대화가 없으면 새 메시지 버튼으로 시작한다.
+    # 대화가 목록에 아예 없거나, 있어도(스크롤 끝까지 해도 화면에 안
+    # 나타나거나, 나타났는데 클릭이 안 먹어서) 열지 못했으면 여기로 온다.
+    # "새 메시지"에 같은 번호를 입력해도 앱이 알아서 기존 대화로 이어주므로
+    # (전화번호 기준으로 스레드가 하나로 유지됨 — 새 대화가 따로 생기지
+    # 않음), 이 경로가 마지막 안전장치 역할을 한다.
     btn = win.child_window(**_NEW_MESSAGE_BUTTON_CRITERIA)
     btn.wait("exists enabled visible", timeout=timeout)
     btn.click_input()
