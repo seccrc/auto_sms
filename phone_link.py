@@ -30,6 +30,13 @@ capture_location_auto.py의 국민신문고 화면처럼 "이름이 매번 바�
       수 있다는 뜻이니, 이 값으로 발송(send_message)할 때도 그대로 같은
       문자열을 쓰면(연락처 이름 기준으로 대화를 찾음) 정상 동작한다 —
       실제 화면에서 알림/대화목록 둘 다 같은 표시 이름을 쓰는 걸 확인했다.
+      ⚠ 이 목록은 가상화(virtualized)돼 있다 — --dump로 확인해보면 화면에
+      실제로 보이는(스크롤 안 해도 되는) 위쪽 항목들만 진짜 좌표를 갖고,
+      스크롤해야 보이는 아래쪽 항목들은 논리적으로는 ListItem으로 잡히는데
+      좌표가 전부 (0,0,0,0)으로 나온다 — 렌더링 자체가 안 됐다는 뜻이라
+      그 상태로 click_input()을 해도 아무 데도 안 눌린다. 실제로 목록
+      중간쯤의 대화를 클릭했는데 대화창이 전혀 안 열리는 사고가 있었다
+      (_open_conversation()의 스크롤 재시도 참고).
     - 새 메시지 버튼: Button(auto_id="NewMessageButton", title="새
       메시지(Ctrl+N)") — 단축키가 title에 붙어있어 정확히 일치하는
       title 문자열로 찾으면 실패하므로 auto_id로 찾는다.
@@ -82,7 +89,7 @@ import time
 # 리눅스/개발 환경에서는 실패한다. app.py의 /api/send 라우트가 이 모듈을
 # 함수 안에서 지연 import하는 것도 이 때문 — 그래야 대시보드 서버 자체는
 # 어떤 OS에서든 문제없이 뜬다.
-from pywinauto import findwindows
+from pywinauto import findwindows, mouse
 from pywinauto.application import Application, WindowSpecification
 from pywinauto import Desktop
 
@@ -333,6 +340,69 @@ def _phone_variants(phone_number: str) -> list:
     return list(dict.fromkeys(variants))
 
 
+def _row_is_rendered(row) -> bool:
+    """가상화된 목록에서 화면 밖(스크롤해야 보이는) 항목은 논리적으로는
+    트리에 잡히지만 실제로 그려지지 않아 화면 좌표가 (0,0,0,0)으로
+    나온다 — 그런 상태에서 click_input()을 해봐야 아무 데도 안 눌린다.
+    너비/높이가 0보다 커야 실제로 화면에 그려져서 클릭 가능한 상태로 본다."""
+    try:
+        rect = row.rectangle()
+        return rect.width() > 0 and rect.height() > 0
+    except Exception:
+        return False
+
+
+def _find_conversation_row(conv_list, variants):
+    """대화 목록에서 번호(들)와 일치하는 행 하나를 찾아 돌려준다. 없으면
+    None. 매번 목록을 새로 훑는다 — 가상화된 목록이라 스크롤한 뒤에는
+    이전에 잡아둔 요소 참조가 더 이상 화면의 실제 항목을 가리키지 않을
+    수 있어서다."""
+    try:
+        rows = conv_list.descendants(control_type="ListItem")
+    except Exception:
+        return None
+    for row in rows:
+        try:
+            title = _clean_bidi(row.window_text() or row.element_info.name)
+        except Exception:
+            continue
+        if any(title.startswith(f"{v}와의 대화 메시지 미리 보기") for v in variants):
+            return row
+    return None
+
+
+# 목록이 가상화돼 있어(_row_is_rendered 참고) 화면 밖 대화를 화면에 나타나게
+# 하려면 스크롤이 필요하다 — 최악의 경우(대화가 수백 건 쌓인 계정)까지
+# 감안해 넉넉하게 잡는다.
+_SCROLL_MAX_STEPS = 40
+
+
+def _scroll_until_rendered(conv_list, variants):
+    """대화 목록에서 번호와 일치하는 행이 화면에 실제로 나타날 때까지
+    마우스 휠로 스크롤한다. 마우스 휠(pywinauto.mouse.scroll)을 쓰는
+    이유: 이 목록(CVSListView) 자체가 UIA ScrollPattern을 구현했다는
+    보장이 없어 UIAWrapper.scroll()이 거부당할 수 있는데, 마우스 휠은
+    OS 입력 이벤트라 그 구현 여부와 무관하게 거의 모든 스크롤 가능한
+    UI에 먹힌다.
+
+    스크롤 방향(휠을 내리는 쪽 = wheel_dist 음수, 윈도우 표준 관례)을
+    먼저 절반만큼 시도하고, 그래도 안 보이면 반대 방향으로 나머지
+    절반을 마저 시도한다 — 이 관례가 혹시 반대로 동작하는 환경이 있어도
+    결국 찾아내기 위한 안전장치다."""
+    list_rect = conv_list.rectangle()
+    coords = ((list_rect.left + list_rect.right) // 2, (list_rect.top + list_rect.bottom) // 2)
+    for i in range(_SCROLL_MAX_STEPS):
+        row = _find_conversation_row(conv_list, variants)
+        if row is None:
+            return None  # 스크롤하는 사이 목록 자체가 바뀐 것으로 보임
+        if _row_is_rendered(row):
+            return row
+        wheel_dist = -3 if i < _SCROLL_MAX_STEPS // 2 else 3
+        mouse.scroll(coords=coords, wheel_dist=wheel_dist)
+        time.sleep(0.15)
+    return _find_conversation_row(conv_list, variants)
+
+
 def _open_conversation(win, phone_number: str, timeout: int = 10):
     """번호로 기존 대화를 찾아 열거나, 없으면 '새 메시지'로 새 대화를 만든다.
     대화 목록 행의 접근성 이름이 "{번호}와의 대화 메시지 미리 보기 ..."로
@@ -350,26 +420,22 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
     직접 훑어 _clean_bidi()로 정리한 텍스트로 비교한다."""
     conv_list = win.child_window(**_CONVERSATION_LIST_CRITERIA)
     variants = _phone_variants(phone_number)
-    try:
-        rows = conv_list.descendants(control_type="ListItem")
-    except Exception:
-        rows = []
-    for row in rows:
-        try:
-            title = _clean_bidi(row.window_text() or row.element_info.name)
-        except Exception:
-            continue
-        if any(title.startswith(f"{v}와의 대화 메시지 미리 보기") for v in variants):
-            # 클릭 한 번으로 항상 바로 열리는 게 아니다 — 실제로 클릭이 씹히거나
-            # (포커스가 없던 창이라 첫 클릭이 창 활성화로만 소비되는 경우 등)
-            # 대화창 렌더링이 느려서, 클릭하고 1초만 무조건 쉰 뒤 "열렸겠지"
-            # 하고 그냥 넘어가면 실제로는 화면이 "새 대화를 시작하거나 회신할
-            # 대화를 하나 선택하세요"라는 빈 상태 그대로인 채 send_message()로
-            # 넘어가서, 입력창(compose)을 못 찾고 10초 뒤 TimeoutError로
-            # 실패하는 사고로 이어진다(실제로 재현됨) — 그것도 "왜" 실패했는지
-            # 알 수 없는 채로. 그래서 클릭 후 입력창이 실제로 나타났는지 확인하고,
-            # 안 나타났으면 한 번 더 클릭해서 재시도하며, 그래도 안 열리면 여기서
-            # 바로 구체적인 이유가 담긴 예외를 던진다.
+
+    row = _find_conversation_row(conv_list, variants)
+    if row is not None:
+        # 가상화된 목록이라 화면 밖(스크롤해야 보이는) 항목은 좌표가 없어
+        # 클릭해도 반응이 없다 — 실제로 재현된 사고: 목록 중간쯤에 있는
+        # 대화를 클릭했는데 대화창이 전혀 안 열리고 "새 대화를 시작하거나
+        # 회신할 대화를 하나 선택하세요"라는 빈 화면 그대로 남아있었다.
+        if not _row_is_rendered(row):
+            row = _scroll_until_rendered(conv_list, variants)
+
+        if row is not None and _row_is_rendered(row):
+            # 화면에 나타난 뒤에도 클릭이 씹히거나(포커스가 없던 창이라
+            # 첫 클릭이 창 활성화로만 소비되는 경우 등) 대화창 렌더링이
+            # 느릴 수 있어, 클릭하고 1초만 무조건 쉰 뒤 "열렸겠지" 하고
+            # 그냥 넘어가면 안 된다 — 입력창(compose)이 실제로 나타났는지
+            # 확인하고, 안 나타났으면 한 번 더 클릭해서 재시도한다.
             for attempt in range(2):
                 row.click_input()
                 try:
@@ -384,6 +450,13 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
                 "열리지 않았습니다(입력창이 나타나지 않음) — 휴대폰과 연결 앱이 "
                 "느리게 반응했거나 클릭이 씹혔을 수 있습니다. 다시 시도해주세요."
             )
+        elif row is not None:
+            raise RuntimeError(
+                f"{phone_number}와의 기존 대화를 목록에서 찾았지만, 최대한 스크롤해도 "
+                "화면에 나타나지 않았습니다 — 대화 목록이 너무 길거나 스크롤이 "
+                "예상과 다르게 동작했을 수 있습니다."
+            )
+        # row가 스크롤 도중 None이 됐으면(목록이 바뀜) 새 메시지 흐름으로 넘어간다.
 
     # 기존 대화가 없으면 새 메시지 버튼으로 시작한다.
     btn = win.child_window(**_NEW_MESSAGE_BUTTON_CRITERIA)
