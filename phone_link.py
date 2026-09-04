@@ -360,9 +360,30 @@ def _open_conversation(win, phone_number: str, timeout: int = 10):
         except Exception:
             continue
         if any(title.startswith(f"{v}와의 대화 메시지 미리 보기") for v in variants):
-            row.click_input()
-            time.sleep(1)
-            return
+            # 클릭 한 번으로 항상 바로 열리는 게 아니다 — 실제로 클릭이 씹히거나
+            # (포커스가 없던 창이라 첫 클릭이 창 활성화로만 소비되는 경우 등)
+            # 대화창 렌더링이 느려서, 클릭하고 1초만 무조건 쉰 뒤 "열렸겠지"
+            # 하고 그냥 넘어가면 실제로는 화면이 "새 대화를 시작하거나 회신할
+            # 대화를 하나 선택하세요"라는 빈 상태 그대로인 채 send_message()로
+            # 넘어가서, 입력창(compose)을 못 찾고 10초 뒤 TimeoutError로
+            # 실패하는 사고로 이어진다(실제로 재현됨) — 그것도 "왜" 실패했는지
+            # 알 수 없는 채로. 그래서 클릭 후 입력창이 실제로 나타났는지 확인하고,
+            # 안 나타났으면 한 번 더 클릭해서 재시도하며, 그래도 안 열리면 여기서
+            # 바로 구체적인 이유가 담긴 예외를 던진다.
+            for attempt in range(2):
+                row.click_input()
+                try:
+                    win.child_window(**_COMPOSE_BOX_CRITERIA).wait(
+                        "exists enabled visible", timeout=3 if attempt == 0 else timeout
+                    )
+                    return
+                except Exception:
+                    continue
+            raise RuntimeError(
+                f"{phone_number}와의 기존 대화를 목록에서 찾아 클릭했지만 대화창이 "
+                "열리지 않았습니다(입력창이 나타나지 않음) — 휴대폰과 연결 앱이 "
+                "느리게 반응했거나 클릭이 씹혔을 수 있습니다. 다시 시도해주세요."
+            )
 
     # 기존 대화가 없으면 새 메시지 버튼으로 시작한다.
     btn = win.child_window(**_NEW_MESSAGE_BUTTON_CRITERIA)
