@@ -849,7 +849,7 @@ let pollTimers = [];
 function startPolling() {
     pollTimers.push(setInterval(loadMessages, 15000));   // 워처가 새로 저장한 수신 문자를 화면에 자동 반영
     pollTimers.push(setInterval(loadStatus, 10000));     // 감시 중단/자동발송 경고는 좀 더 자주 확인
-    pollTimers.push(setInterval(loadAutoReplySettings, 60000));  // 업무시간이 바뀌면 안내 문구도 따라가게
+    pollTimers.push(setInterval(loadAutoReplySettings, 10000));  // 업무시간이 바뀌면 안내 문구도 따라가고, 다른 컴퓨터에서 켜고/끈 것도 빨리 반영되게
 }
 
 function stopPolling() {
