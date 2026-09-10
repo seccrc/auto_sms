@@ -191,6 +191,31 @@ def api_create_user():
     return jsonify({"ok": True})
 
 
+@app.route("/api/users/<int:user_id>/reset_password", methods=["POST"])
+def api_reset_password(user_id):
+    """비밀번호를 잊어버린 팀원을 위해, 관리자가 새 비밀번호를 대신
+    정해준다 - 이메일 등으로 본인 확인 후 재설정 링크를 보내는 절차는
+    이 규모(팀 3명, 관리자가 서로 다 아는 사이)에 비해 과하다고 보고,
+    "관리자가 계정을 관리한다"는 기존 방식을 그대로 확장했다."""
+    user = _current_user()
+    if not user["is_admin"]:
+        return jsonify({"error": "관리자만 비밀번호를 초기화할 수 있습니다"}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    password = data.get("password") or ""
+    if len(password) < 4:
+        return jsonify({"error": "비밀번호는 4자 이상으로 정해주세요."}), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+        conn.close()
+        return jsonify({"error": "존재하지 않는 계정입니다"}), 404
+    conn.execute(
+        "UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(password), user_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
 # ── 대시보드 화면 ────────────────────────────────────────
 @app.route("/")
 def index():

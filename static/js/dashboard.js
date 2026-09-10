@@ -67,6 +67,37 @@ function confirmDialog(title, message, confirmLabel = '확인', danger = true) {
     });
 }
 
+// confirmDialog()와 같은 구조지만 텍스트 입력 하나를 받아서 그 값(취소하면
+// null)을 돌려준다 - 비밀번호 초기화(openAccountsModal 참고)에서 새
+// 비밀번호를 입력받을 때 쓴다. 브라우저 기본 prompt()는 마스킹도 안 되고
+// 화면 스타일과 안 어울려서 안 쓴다.
+function promptText(title, message, placeholder = '') {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal-box">
+                <h3>${esc(title)}</h3>
+                <p>${esc(message)}</p>
+                <input type="text" id="promptTextInput" autocomplete="off" placeholder="${esc(placeholder)}">
+                <div class="modal-actions">
+                    <button class="btn-ghost" data-act="cancel">취소</button>
+                    <button class="btn-primary" data-act="ok">저장</button>
+                </div>
+            </div>`;
+        const close = (result) => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(result); };
+        const onKey = (e) => { if (e.key === 'Escape') close(null); };
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) { close(null); return; }
+            const act = e.target.closest('[data-act]');
+            if (act) close(act.dataset.act === 'ok' ? overlay.querySelector('#promptTextInput').value : null);
+        });
+        document.addEventListener('keydown', onKey);
+        document.body.appendChild(overlay);
+        overlay.querySelector('#promptTextInput').focus();
+    });
+}
+
 // lastThreads는 15초 주기 폴링에만 갱신되므로, 저장 직후 사용자가 수정
 // 모드를 빠져나가 renderThreads()가 다시 그리면 방금 저장한 값이 아니라
 // 이 캐시에 남은 옛 값으로 되돌아가 보이는 문제가 있었다. 저장에 성공하면
@@ -783,7 +814,8 @@ async function openAccountsModal() {
             const r = await fetch('/api/users');
             const d = await r.json();
             listEl.innerHTML = (d.users || []).map(u =>
-                `<li><span class="name">${esc(u.username)}</span>${u.is_admin ? '<span class="badge">관리자</span>' : ''}</li>`
+                `<li><span class="name">${esc(u.username)}</span>${u.is_admin ? '<span class="badge">관리자</span>' : ''}` +
+                `<button class="btn-ghost" data-reset="${u.id}" data-username="${esc(u.username)}">비밀번호 초기화</button></li>`
             ).join('') || '<li>계정이 없습니다</li>';
         } catch (e) {
             listEl.innerHTML = '<li>불러오기 실패</li>';
@@ -792,6 +824,33 @@ async function openAccountsModal() {
 
     overlay.addEventListener('click', async (e) => {
         if (e.target === overlay) { overlay.remove(); return; }
+
+        const resetBtn = e.target.closest('[data-reset]');
+        if (resetBtn) {
+            const password = await promptText(
+                '비밀번호 초기화',
+                `"${resetBtn.dataset.username}" 계정의 새 비밀번호를 입력하세요.`,
+                '새 비밀번호 (4자 이상)',
+            );
+            if (password === null) return; // 취소함
+            if (password.length < 4) {
+                showToast('비밀번호는 4자 이상으로 정해주세요', 'bad');
+                return;
+            }
+            try {
+                const r = await fetch(`/api/users/${resetBtn.dataset.reset}/reset_password`, {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({password}),
+                });
+                const d = await r.json();
+                if (!r.ok) { showToast(d.error || '초기화 실패', 'bad'); return; }
+                showToast('비밀번호를 초기화했습니다');
+            } catch (e) {
+                showToast('초기화 실패', 'bad');
+            }
+            return;
+        }
+
         const act = e.target.closest('[data-act]');
         if (!act) return;
         if (act.dataset.act === 'close') { overlay.remove(); return; }
