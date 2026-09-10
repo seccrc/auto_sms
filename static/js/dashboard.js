@@ -188,6 +188,10 @@ async function loadAutoReplySettings() {
         document.getElementById('autoReplyEnabled').checked = !!d.enabled;
         renderAutoReplyTemplateOptions();
         if (d.template_id) document.getElementById('autoReplyTemplateSelect').value = d.template_id;
+        // 10초마다 폴링되는데, 지금 이 칸에 숫자를 입력하는 중이면 값을
+        // 덮어써서 타이핑을 방해하면 안 된다(loadMessages()의 같은 이유).
+        const quietMinutesEl = document.getElementById('autoReplyQuietMinutes');
+        if (document.activeElement !== quietMinutesEl) quietMinutesEl.value = d.quiet_minutes;
         // 토글이 켜져 있으면 업무시간과 무관하게 바로 발송되므로(공휴일처럼
         // 요일상 평일이지만 자리를 비운 날 대응), 업무시간 여부는 참고
         // 정보로만 보여주고 "대기 상태"처럼 발송이 막힌다고 오해하게 하지
@@ -206,6 +210,7 @@ async function loadAutoReplySettings() {
 async function saveAutoReplySettings() {
     const enabled = document.getElementById('autoReplyEnabled').checked;
     const templateId = document.getElementById('autoReplyTemplateSelect').value;
+    const quietMinutes = document.getElementById('autoReplyQuietMinutes').value;
     if (enabled && !templateId) {
         showToast('자동발송할 상용문구를 먼저 선택하세요', 'bad');
         document.getElementById('autoReplyEnabled').checked = false;
@@ -214,7 +219,10 @@ async function saveAutoReplySettings() {
     try {
         await fetch('/api/settings/auto_reply', {
             method: 'PUT', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({enabled, template_id: templateId ? Number(templateId) : null})
+            body: JSON.stringify({
+                enabled, template_id: templateId ? Number(templateId) : null,
+                quiet_minutes: quietMinutes === '' ? null : Number(quietMinutes),
+            })
         });
         // 저장 직후 상태 문구("지금은 업무외 시간입니다...")가 바로 갱신되게
         // 다시 불러온다 — 안 하면 다음 폴링이나 새로고침 전까지 꺼짐/켜짐

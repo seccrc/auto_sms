@@ -148,8 +148,10 @@ BUSINESS_END_HOUR = 18
 
 # 나눠 보낸 문자처럼 같은 번호에서 짧은 시간 안에 여러 통이 연달아 올 때,
 # 매 통마다 자동발송이 또 나가면 스팸처럼 느껴진다 — 그 번호로 이 시간(분)
-# 안에 이미 발신 문자가 나갔으면 자동발송을 건너뛴다.
-AUTO_REPLY_QUIET_MINUTES = 1
+# 안에 이미 발신 문자가 나갔으면 자동발송을 건너뛴다. auto_reply_enabled와
+# 같은 방식(settings 테이블)으로 화면에서 바로 바꿀 수 있게 뒀다 - 저장된
+# 적이 없으면(처음 실행) 이 기본값을 쓴다.
+AUTO_REPLY_QUIET_MINUTES_DEFAULT = "1"
 
 
 def _is_business_hours(now: datetime = None) -> bool:
@@ -231,9 +233,13 @@ def _maybe_send_auto_reply(phone_number: str, complaint_id: int):
         ).fetchone()
         if not template:
             return
+        try:
+            quiet_minutes = int(get_setting("auto_reply_quiet_minutes", AUTO_REPLY_QUIET_MINUTES_DEFAULT))
+        except (TypeError, ValueError):
+            quiet_minutes = int(AUTO_REPLY_QUIET_MINUTES_DEFAULT)
         recent_out = conn.execute(
             "SELECT 1 FROM messages WHERE phone_number=? AND direction='out' "
-            f"AND created_at >= datetime('now','localtime','-{AUTO_REPLY_QUIET_MINUTES} minutes') LIMIT 1",
+            f"AND created_at >= datetime('now','localtime','-{quiet_minutes} minutes') LIMIT 1",
             (phone_number,),
         ).fetchone()
         if recent_out:
@@ -544,6 +550,7 @@ def api_get_auto_reply_settings():
     return jsonify({
         "enabled": get_setting("auto_reply_enabled", "0") == "1",
         "template_id": int(template_id) if template_id else None,
+        "quiet_minutes": int(get_setting("auto_reply_quiet_minutes", AUTO_REPLY_QUIET_MINUTES_DEFAULT)),
         "business_hours_now": _is_business_hours(),
     })
 
@@ -554,6 +561,14 @@ def api_update_auto_reply_settings():
     set_setting("auto_reply_enabled", "1" if data.get("enabled") else "0")
     template_id = data.get("template_id")
     set_setting("auto_reply_template_id", str(template_id) if template_id else "")
+    quiet_minutes = data.get("quiet_minutes")
+    try:
+        quiet_minutes = int(quiet_minutes)
+        if quiet_minutes < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        quiet_minutes = int(AUTO_REPLY_QUIET_MINUTES_DEFAULT)
+    set_setting("auto_reply_quiet_minutes", str(quiet_minutes))
     return jsonify({"ok": True})
 
 
