@@ -10,12 +10,14 @@ watch_daemon.py와 phone_link.py는 pywinauto(Windows 전용)를 쓰므로 이 �
 연결 앱이 설치된 윈도우 PC에서만 동작한다.
 """
 import os
+import secrets
 import subprocess
 import threading
 import time
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import get_db, get_setting, init_db, make_dedup_key, now_local, set_setting
 
@@ -25,6 +27,17 @@ app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
 
+# 세션 쿠키에 서명할 때 쓰는 비밀키 — 코드에 박아두면(그리고 깃허브에
+# 올라가면) 그 값을 아는 사람이 세션을 위조할 수 있고, 재시작마다 값이
+# 바뀌면 다들 로그인이 풀려버린다. 그래서 처음 뜰 때 한 번만 무작위로
+# 만들어 settings 테이블(로컬 DB, git에 안 올라감)에 저장해두고 계속
+# 재사용한다.
+_secret_key = get_setting("flask_secret_key")
+if not _secret_key:
+    _secret_key = secrets.token_hex(32)
+    set_setting("flask_secret_key", _secret_key)
+app.secret_key = _secret_key
+
 # phone_link.send_message()는 실제 마우스 클릭/키보드 입력으로 휴대폰과
 # 연결 앱 창 하나를 조작한다 - 발송 버튼(api_send)과 업무외 자동발송
 # (_dispatch_auto_reply, 별도 스레드)이 동시에 겹치면 같은 창을 두 흐름이
@@ -33,10 +46,119 @@ init_db()
 _send_lock = threading.Lock()
 
 
+# ── 로그인 ───────────────────────────────────────────────
+# 로그인 화면(및 그 화면이 쓰는 정적 파일)만 예외 — 그 외 모든 페이지/API는
+# 로그인해야 접근 가능하다.
+_AUTH_EXEMPT_ENDPOINTS = {"login", "static"}
+
+
+def _current_user():
+    """로그인한 사용자 정보(dict) 또는 None. session.permanent를 안 켜서
+    (기본값 False) 브라우저를 닫으면 세션 쿠키가 사라지고 로그아웃된다."""
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    conn = get_db()
+    row = conn.execute("SELECT id, username, is_admin FROM users WHERE id=?", (uid,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+@app.before_request
+def _require_login():
+    if request.endpoint is None or request.endpoint in _AUTH_EXEMPT_ENDPOINTS:
+        return
+    if _current_user():
+        return
+    # /api/*는 대시보드의 JS fetch가 부르므로, 로그인 화면으로 리다이렉트해봐야
+    # JS가 그 HTML을 JSON으로 파싱하려다 에러만 난다 — 401을 그대로 돌려준다.
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "로그인이 필요합니다"}), 401
+    return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """아직 계정이 하나도 없으면(처음 실행) 관리자 계정을 직접 만드는
+    화면으로, 그 뒤로는 평범한 로그인 화면으로 동작한다 — 기본 비밀번호를
+    코드에 박아두지 않기 위해서다."""
+    conn = get_db()
+    first_run = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    error = None
+
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        if first_run:
+            if not username or len(password) < 4:
+                error = "아이디를 입력하고, 비밀번호는 4자 이상으로 정해주세요."
+            else:
+                cur = conn.execute(
+                    "INSERT INTO users (username, password_hash, is_admin) VALUES (?,?,1)",
+                    (username, generate_password_hash(password)),
+                )
+                conn.commit()
+                session["user_id"] = cur.lastrowid
+                conn.close()
+                return redirect(url_for("index"))
+        else:
+            row = conn.execute(
+                "SELECT id, password_hash FROM users WHERE username=?", (username,)
+            ).fetchone()
+            if row and check_password_hash(row["password_hash"], password):
+                session["user_id"] = row["id"]
+                conn.close()
+                return redirect(url_for("index"))
+            error = "아이디 또는 비밀번호가 올바르지 않습니다."
+
+    conn.close()
+    return render_template("login.html", first_run=first_run, error=error)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/api/users", methods=["GET"])
+def api_list_users():
+    user = _current_user()
+    if not user["is_admin"]:
+        return jsonify({"error": "관리자만 볼 수 있습니다"}), 403
+    conn = get_db()
+    rows = conn.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id").fetchall()
+    conn.close()
+    return jsonify({"users": [dict(r) for r in rows]})
+
+
+@app.route("/api/users", methods=["POST"])
+def api_create_user():
+    user = _current_user()
+    if not user["is_admin"]:
+        return jsonify({"error": "관리자만 계정을 추가할 수 있습니다"}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username or len(password) < 4:
+        return jsonify({"error": "아이디를 입력하고, 비밀번호는 4자 이상으로 정해주세요."}), 400
+    conn = get_db()
+    if conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+        conn.close()
+        return jsonify({"error": "이미 있는 아이디입니다"}), 400
+    conn.execute(
+        "INSERT INTO users (username, password_hash, is_admin) VALUES (?,?,?)",
+        (username, generate_password_hash(password), 1 if data.get("is_admin") else 0),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
 # ── 대시보드 화면 ────────────────────────────────────────
 @app.route("/")
 def index():
-    return render_template("dashboard.html")
+    return render_template("dashboard.html", current_user=_current_user())
 
 
 def _build_threads(rows: list) -> list:

@@ -747,6 +747,84 @@ async function shutdownServer() {
         </div>`;
 }
 
+async function logout() {
+    try {
+        await fetch('/logout', { method: 'POST' });
+    } catch (e) {}
+    window.location.href = '/login';
+}
+
+// ── 계정 관리(관리자 전용) ──
+// confirmDialog()와 같은 modal-overlay/modal-box를 재사용한다. 목록을
+// 불러오고, 새 계정 추가 폼을 그 자리에서 처리한다.
+async function openAccountsModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal-box">
+            <h3>계정 관리</h3>
+            <ul class="accounts-list" id="accountsList"><li>불러오는 중…</li></ul>
+            <label for="newUsername">아이디</label>
+            <input type="text" id="newUsername" autocomplete="off">
+            <label for="newPassword">비밀번호 (4자 이상)</label>
+            <input type="text" id="newPassword" autocomplete="off">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);margin-bottom:14px;">
+                <input type="checkbox" id="newIsAdmin" style="margin:0;width:auto;"> 관리자 권한 부여
+            </label>
+            <div class="modal-actions">
+                <button class="btn-ghost" data-act="close">닫기</button>
+                <button class="btn-primary" data-act="add">계정 추가</button>
+            </div>
+        </div>`;
+
+    async function refreshList() {
+        const listEl = overlay.querySelector('#accountsList');
+        try {
+            const r = await fetch('/api/users');
+            const d = await r.json();
+            listEl.innerHTML = (d.users || []).map(u =>
+                `<li><span class="name">${esc(u.username)}</span>${u.is_admin ? '<span class="badge">관리자</span>' : ''}</li>`
+            ).join('') || '<li>계정이 없습니다</li>';
+        } catch (e) {
+            listEl.innerHTML = '<li>불러오기 실패</li>';
+        }
+    }
+
+    overlay.addEventListener('click', async (e) => {
+        if (e.target === overlay) { overlay.remove(); return; }
+        const act = e.target.closest('[data-act]');
+        if (!act) return;
+        if (act.dataset.act === 'close') { overlay.remove(); return; }
+        if (act.dataset.act === 'add') {
+            const username = overlay.querySelector('#newUsername').value.trim();
+            const password = overlay.querySelector('#newPassword').value;
+            const isAdmin = overlay.querySelector('#newIsAdmin').checked;
+            if (!username || password.length < 4) {
+                showToast('아이디를 입력하고, 비밀번호는 4자 이상으로 정해주세요', 'bad');
+                return;
+            }
+            try {
+                const r = await fetch('/api/users', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({username, password, is_admin: isAdmin}),
+                });
+                const d = await r.json();
+                if (!r.ok) { showToast(d.error || '추가 실패', 'bad'); return; }
+                overlay.querySelector('#newUsername').value = '';
+                overlay.querySelector('#newPassword').value = '';
+                overlay.querySelector('#newIsAdmin').checked = false;
+                showToast('계정을 추가했습니다');
+                refreshList();
+            } catch (e) {
+                showToast('추가 실패', 'bad');
+            }
+        }
+    });
+
+    document.body.appendChild(overlay);
+    refreshList();
+}
+
 // ── 운영 상태 (감시 데몬 / 업무시간 중 자동발송) ──
 // 이 시스템이 조용히 실패하는 경우가 두 가지 있어서 화면 위쪽에서 계속
 // 확인해준다.

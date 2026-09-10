@@ -50,6 +50,14 @@ def init_db():
             key   TEXT PRIMARY KEY,               -- 예: auto_reply_enabled, auto_reply_template_id
             value TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin      INTEGER NOT NULL DEFAULT 0,
+            created_at    TEXT DEFAULT (datetime('now', 'localtime'))
+        );
     """)
     _migrate_message_columns(conn)
     conn.commit()
