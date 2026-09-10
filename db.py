@@ -10,6 +10,14 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # watch_daemon.py(수신 감시, 별도 프로세스)와 팀원 여러 명이 동시에 쓰는
+    # 대시보드 요청이 같은 DB 파일에 거의 동시에 쓸 수 있다. 기본 모드는
+    # 커넥션 하나만 쓸 수 있고 다른 쪽이 쓰려고 하면 기다려주지도 않고
+    # (busy_timeout 기본값 0) 바로 "database is locked" 에러가 나므로, WAL
+    # 모드(쓰기 하나+읽기 여럿을 동시에 허용)와 busy_timeout(잠깐 겹쳐도
+    # 몇 초 기다렸다가 재시도)을 켜서 그런 경합을 견디게 한다.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
