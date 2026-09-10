@@ -25,6 +25,13 @@ app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
 
+# phone_link.send_message()는 실제 마우스 클릭/키보드 입력으로 휴대폰과
+# 연결 앱 창 하나를 조작한다 - 발송 버튼(api_send)과 업무외 자동발송
+# (_dispatch_auto_reply, 별도 스레드)이 동시에 겹치면 같은 창을 두 흐름이
+# 같이 건드려서 엉뚱한 대화방에 타이핑되거나 문구가 섞여 나갈 수 있다.
+# 이 락으로 실제 발송은 항상 한 번에 하나씩만 진행되게 한다.
+_send_lock = threading.Lock()
+
 
 # ── 대시보드 화면 ────────────────────────────────────────
 @app.route("/")
@@ -266,7 +273,8 @@ def _maybe_send_auto_reply(phone_number: str, complaint_id: int):
 
     try:
         import phone_link
-        phone_link.send_message(phone_number, body)
+        with _send_lock:
+            phone_link.send_message(phone_number, body)
     except Exception as e:
         print(f"[업무외 자동발송] 발송 실패, 기록도 되돌립니다 ({phone_number}): {e!r}")
         conn = get_db()
@@ -569,7 +577,8 @@ def api_send():
         return jsonify({"error": f"phone_link 모듈을 불러오지 못했습니다 (윈도우 전용 기능입니다): {e}"}), 500
 
     try:
-        phone_link.send_message(phone_number, body)
+        with _send_lock:
+            phone_link.send_message(phone_number, body)
     except Exception as e:
         return jsonify({"error": f"발송 실패: {e}"}), 502
 
