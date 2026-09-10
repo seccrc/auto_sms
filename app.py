@@ -16,7 +16,7 @@ import threading
 import time
 from datetime import datetime
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import get_db, get_setting, init_db, make_dedup_key, now_local, set_setting
@@ -51,6 +51,19 @@ _send_lock = threading.Lock()
 # 로그인해야 접근 가능하다.
 _AUTH_EXEMPT_ENDPOINTS = {"login", "static"}
 
+# watch_daemon.py(휴대폰과 연결 앱 화면을 읽어 이 서버로 올리는 별도
+# 프로세스)는 브라우저가 아니라 requests 라이브러리로 직접 호출한다 —
+# 로그인 세션 쿠키도 없고 Origin/Referer 헤더도 안 보낸다. 그래서 이 두
+# 엔드포인트만 로그인/CSRF 검사에서 빼주는데, 대신 아무나 네트워크에서
+# 두드릴 수 있으면 안 되니 _is_localhost_request()로 "이 서버 자신"에서
+# 온 요청인지 확인한다 — watch_daemon.py는 항상 서버와 같은 PC에서 돈다
+# (모듈 상단 설명 참고).
+_LOCAL_MACHINE_ENDPOINTS = {"api_save_message", "api_heartbeat"}
+
+
+def _is_localhost_request():
+    return request.remote_addr in ("127.0.0.1", "::1")
+
 
 def _current_user():
     """로그인한 사용자 정보(dict) 또는 None. session.permanent를 안 켜서
@@ -64,9 +77,32 @@ def _current_user():
     return dict(row) if row else None
 
 
+# 이 앱은 로그인/세션이 생기면서 상태를 바꾸는(POST) 요청마다 브라우저가
+# 자동으로 붙여주는 Origin/Referer 헤더가 이 서버 자신인지 확인해서, 다른
+# 사이트가 로그인된 브라우저를 통해 몰래 보낸 요청(CSRF)을 걸러낸다 —
+# 정상적인 요청은 전부 이 화면 안의 폼/버튼에서 나오므로 Origin이 항상 이
+# 서버 자신이다. violation 프로젝트의 같은 검사와 동일한 방식.
+@app.before_request
+def _verify_same_origin():
+    if request.method != "POST" or request.endpoint in _LOCAL_MACHINE_ENDPOINTS:
+        return
+    expected = request.host_url.rstrip("/")
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        if origin.rstrip("/") != expected:
+            abort(403)
+        return
+    referer = request.headers.get("Referer")
+    if referer is not None and (referer == expected or referer.startswith(expected + "/")):
+        return
+    abort(403)
+
+
 @app.before_request
 def _require_login():
     if request.endpoint is None or request.endpoint in _AUTH_EXEMPT_ENDPOINTS:
+        return
+    if request.endpoint in _LOCAL_MACHINE_ENDPOINTS and _is_localhost_request():
         return
     if _current_user():
         return
