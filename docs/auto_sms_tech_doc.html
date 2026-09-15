@@ -1,0 +1,584 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<title>auto_sms 기술 문서</title>
+<style>
+:root{
+  --paper:#eef1f6;
+  --paper-raised:#ffffff;
+  --ink:#14161d;
+  --muted:#555c6c;
+  --line:#e2e6ee;
+  --accent:#2452c9;
+  --accent-ink:#ffffff;
+  --accent-soft:#e7edfb;
+  --signal:#ae3226;
+  --signal-soft:#fae7e4;
+  --signal-ink:#8a271d;
+  --code-bg:#eef1f6;
+  --code-ink:#142e73;
+  --shadow: 0 1px 2px rgba(20,22,29,0.06), 0 8px 24px rgba(20,22,29,0.05);
+  --font-ui: "IBM Plex Sans KR", -apple-system, BlinkMacSystemFont, "Malgun Gothic", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "JetBrains Mono", "D2Coding", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#12141a;
+    --paper-raised:#191c24;
+    --ink:#e9ebf1;
+    --muted:#9aa1b3;
+    --line:#2b2f3b;
+    --accent:#7fa1ee;
+    --accent-ink:#0e1730;
+    --accent-soft:#1c2540;
+    --signal:#e0847a;
+    --signal-soft:#2f1e1c;
+    --signal-ink:#f0b3ab;
+    --code-bg:#1c1f28;
+    --code-ink:#b9c8f5;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#12141a;
+  --paper-raised:#191c24;
+  --ink:#e9ebf1;
+  --muted:#9aa1b3;
+  --line:#2b2f3b;
+  --accent:#7fa1ee;
+  --accent-ink:#0e1730;
+  --accent-soft:#1c2540;
+  --signal:#e0847a;
+  --signal-soft:#2f1e1c;
+  --signal-ink:#f0b3ab;
+  --code-bg:#1c1f28;
+  --code-ink:#b9c8f5;
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+}
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--font-ui);
+  font-size:16px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--accent-soft); color:var(--ink);}
+
+a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent;}
+a:hover{border-bottom-color:currentColor;}
+a:focus-visible, button:focus-visible, summary:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px; border-radius:2px;
+}
+
+.shell{
+  display:grid;
+  grid-template-columns:272px minmax(0,1fr);
+  max-width:1240px;
+  margin:0 auto;
+}
+
+.sidebar{
+  position:sticky; top:0; align-self:start;
+  height:100vh; overflow-y:auto;
+  padding:2.25rem 1.25rem 2.5rem 1.75rem;
+  border-right:1px solid var(--line);
+}
+.brand{
+  font-size:0.72rem; letter-spacing:0.09em; text-transform:uppercase;
+  color:var(--muted); margin:0 0 0.3rem;
+}
+.brand-title{
+  font-size:1.2rem; font-weight:700; margin:0 0 1.6rem; text-wrap:balance;
+  line-height:1.35;
+}
+.toc{list-style:none; margin:0; padding:0; font-size:0.89rem;}
+.toc li{margin:0;}
+.toc a{
+  display:block; padding:0.36rem 0.5rem; margin:0.02rem 0;
+  color:var(--muted); border-bottom:none; border-radius:6px;
+}
+.toc a:hover{color:var(--ink); background:var(--paper-raised);}
+.toc .num{
+  display:inline-block; width:1.6em; color:var(--accent);
+  font-variant-numeric:tabular-nums; font-size:0.85em;
+}
+.toc-sub{list-style:none; margin:0 0 0.2rem; padding:0 0 0 1.9em; font-size:0.93em;}
+.toc-sub a{color:var(--muted); padding:0.22rem 0.5rem;}
+
+main{padding:2.5rem 3rem 6rem; min-width:0;}
+.doc-header{margin-bottom:2.4rem; padding-bottom:2rem; border-bottom:1px solid var(--line);}
+.eyebrow{
+  font-size:0.75rem; letter-spacing:0.09em; text-transform:uppercase;
+  color:var(--accent); font-weight:600; margin:0 0 0.7rem;
+}
+h1{font-size:2.15rem; line-height:1.25; margin:0 0 0.8rem; text-wrap:balance; letter-spacing:-0.01em;}
+.dek{color:var(--muted); font-size:1.05rem; max-width:62ch; margin:0 0 1.1rem;}
+.meta-row{display:flex; gap:1.4rem; flex-wrap:wrap; font-size:0.85rem; color:var(--muted);}
+.meta-row b{color:var(--ink); font-weight:600;}
+
+section{margin:3.4rem 0;}
+section > h2{
+  font-size:1.5rem; margin:0 0 0.3rem; padding-top:0.2rem;
+  scroll-margin-top:1.5rem; letter-spacing:-0.005em;
+}
+section > .sec-desc{color:var(--muted); margin:0 0 1.5rem; max-width:68ch;}
+h3{font-size:1.15rem; margin:2rem 0 0.7rem; scroll-margin-top:1.5rem;}
+h4{font-size:0.98rem; margin:1.4rem 0 0.5rem; color:var(--ink);}
+p{max-width:70ch;}
+ul,ol{max-width:70ch; padding-left:1.3rem;}
+li{margin:0.25rem 0;}
+code{
+  font-family:var(--font-mono); background:var(--code-bg); color:var(--code-ink);
+  padding:0.12em 0.4em; border-radius:4px; font-size:0.86em;
+}
+pre{
+  background:var(--code-bg); color:var(--code-ink);
+  border:1px solid var(--line); border-radius:8px;
+  padding:0.95rem 1.1rem; overflow-x:auto; font-size:0.83rem; line-height:1.6;
+  font-family:var(--font-mono);
+}
+pre code{background:none; padding:0; border-radius:0; font-size:1em;}
+
+.callout{
+  border-radius:10px; padding:1rem 1.15rem; margin:1.1rem 0 1.4rem;
+  border:1px solid var(--line); max-width:70ch;
+}
+.callout > .callout-label{
+  font-size:0.72rem; font-weight:700; letter-spacing:0.07em; text-transform:uppercase;
+  display:block; margin-bottom:0.4rem;
+}
+.callout p, .callout ul{margin:0.3rem 0 0;}
+.callout.drift{
+  background:var(--signal-soft); border-color:color-mix(in srgb, var(--signal) 35%, var(--line));
+}
+.callout.drift > .callout-label{color:var(--signal-ink);}
+.callout.note{background:var(--accent-soft); border-color:color-mix(in srgb, var(--accent) 30%, var(--line));}
+.callout.note > .callout-label{color:var(--accent);}
+
+.table-wrap{overflow-x:auto; margin:1.1rem 0 1.6rem; border:1px solid var(--line); border-radius:10px;}
+table{border-collapse:collapse; width:100%; font-size:0.87rem; min-width:560px;}
+thead th{
+  text-align:left; background:var(--paper-raised); color:var(--muted);
+  font-weight:600; font-size:0.72rem; letter-spacing:0.05em; text-transform:uppercase;
+  padding:0.6rem 0.9rem; border-bottom:1px solid var(--line); white-space:nowrap;
+}
+tbody td{padding:0.55rem 0.9rem; border-bottom:1px solid var(--line); vertical-align:top;}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:var(--paper-raised);}
+td code, th code{white-space:nowrap;}
+.method{
+  display:inline-block; font-family:var(--font-mono); font-size:0.72rem; font-weight:700;
+  padding:0.1em 0.5em; border-radius:4px; letter-spacing:0.02em;
+}
+.m-get{background:var(--accent-soft); color:var(--accent);}
+.m-post{background:color-mix(in srgb, #0f7a56 22%, var(--paper-raised)); color:#0f7a56;}
+.m-put{background:color-mix(in srgb, #9c6b08 20%, var(--paper-raised)); color:#9c6b08;}
+.m-patch{background:color-mix(in srgb, #6d3fa0 20%, var(--paper-raised)); color:#6d3fa0;}
+.m-delete{background:var(--signal-soft); color:var(--signal-ink);}
+
+.badge{
+  display:inline-block; font-size:0.72rem; font-weight:600; padding:0.15em 0.55em;
+  border-radius:999px; border:1px solid var(--line); color:var(--muted); margin-right:0.3rem;
+}
+
+.grid-2{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem; margin:1.2rem 0;}
+.card{
+  border:1px solid var(--line); border-radius:10px; padding:1.1rem 1.2rem;
+  background:var(--paper-raised); box-shadow:var(--shadow);
+}
+.card h4{margin-top:0;}
+.card p{margin-bottom:0; font-size:0.92rem; color:var(--muted); max-width:none;}
+
+.flow{
+  display:flex; align-items:stretch; gap:0; flex-wrap:wrap;
+  margin:1.4rem 0;
+}
+.flow-step{
+  flex:1 1 150px; background:var(--paper-raised); border:1px solid var(--line);
+  border-radius:10px; padding:0.85rem 1rem; font-size:0.85rem; position:relative;
+  box-shadow:var(--shadow);
+}
+.flow-step .fnum{color:var(--accent); font-weight:700; font-size:0.75rem; display:block; margin-bottom:0.25rem;}
+.flow-arrow{
+  display:flex; align-items:center; justify-content:center; color:var(--muted);
+  padding:0 0.5rem; font-size:1.1rem; flex:0 0 auto;
+}
+@media (max-width:700px){ .flow{flex-direction:column;} .flow-arrow{transform:rotate(90deg); padding:0.2rem 0;} }
+
+hr.rule{border:none; border-top:1px solid var(--line); margin:2.4rem 0;}
+
+footer{
+  border-top:1px solid var(--line); padding:2rem 3rem 3rem; color:var(--muted); font-size:0.82rem;
+}
+
+@media (max-width:920px){
+  .shell{grid-template-columns:1fr;}
+  .sidebar{position:relative; height:auto; border-right:none; border-bottom:1px solid var(--line);}
+  main{padding:2rem 1.3rem 4rem;}
+  footer{padding:1.5rem 1.3rem 2.5rem;}
+}
+
+@media print{
+  :root{ --shadow: none; }
+  body{ font-size:12.5px; }
+  .sidebar{ position:static; height:auto; break-after:page; }
+  main{ padding:0.3in 0.15in 0.5in; }
+  section{ margin:1.6rem 0; }
+  h1,h2,h3{ break-after:avoid; }
+  .table-wrap{ overflow:visible; box-shadow:none; }
+  table{ min-width:0; width:100%; table-layout:fixed; }
+  th, td{ white-space:normal; overflow-wrap:anywhere; }
+  td code, th code{ white-space:normal; overflow-wrap:anywhere; }
+  tr, .card, .callout, .flow-step, pre{ break-inside:avoid; }
+  .flow{ flex-direction:column; }
+  .flow-arrow{ transform:rotate(90deg); padding:0.1rem 0; }
+  .card{ box-shadow:none; }
+  a{ border-bottom-color:transparent; }
+}
+</style>
+
+<div class="shell">
+  <nav class="sidebar" aria-label="목차">
+    <p class="brand">기술 문서 · v1 (Flask)</p>
+    <p class="brand-title">auto_sms<br>동구청 민원문자 관리 시스템</p>
+    <ul class="toc">
+      <li><a href="#overview"><span class="num">01</span>개요</a></li>
+      <li><a href="#architecture"><span class="num">02</span>아키텍처</a></li>
+      <li><a href="#data"><span class="num">03</span>데이터 모델</a></li>
+      <li><a href="#auth"><span class="num">04</span>인증 · 보안</a></li>
+      <li><a href="#api"><span class="num">05</span>API 레퍼런스</a></li>
+      <li><a href="#threads"><span class="num">06</span>스레드 묶기 로직</a></li>
+      <li><a href="#watcher"><span class="num">07</span>감시 데몬 · phone_link.py</a></li>
+      <li><a href="#autoreply"><span class="num">08</span>업무외 자동발송</a></li>
+      <li><a href="#frontend"><span class="num">09</span>프론트엔드 구조</a></li>
+      <li><a href="#ops"><span class="num">10</span>운영 노트</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <header class="doc-header">
+      <p class="eyebrow">Technical Reference</p>
+      <h1>휴대폰과 연결 앱 자동화부터 스레드 로직까지</h1>
+      <p class="dek">Flask 기반 민원 문자 대시보드의 아키텍처, 데이터 모델, API, 휴대폰과 연결(Phone Link) 앱을 pywinauto로 조작하는 감시·발송 데몬, 스레드 묶기·업무외 자동발송 로직을 코드 기준으로 정리했습니다.</p>
+      <div class="meta-row">
+        <span><b>스택</b> Flask 3 · SQLite(WAL) · Jinja2 · Vanilla JS · pywinauto(Windows 전용)</span>
+        <span><b>코드 규모</b> app.py 856줄 · phone_link.py 926줄 · watch_daemon.py 275줄 · dashboard.js 1009줄</span>
+      </div>
+    </header>
+
+    <section id="overview">
+      <h2>01 · 개요</h2>
+      <p class="sec-desc">휴대폰과 연결(Phone Link, 구 Your Phone) 앱을 통해 오가는 민원 문자를 자동으로 감지해 저장하고, 상용문구로 원클릭 답신을 보내는 3인 규모 팀용 내부 도구입니다.</p>
+      <p>서버(<code>app.py</code>)는 <code>python app.py</code> 한 줄로 뜨는 단일 Flask 프로세스이고, 실제 문자 감시는 별도 프로세스인 <code>watch_daemon.py</code>가 맡습니다. 둘 다 <code>phone_link.py</code>를 통해 Windows의 "휴대폰과 연결" 앱 창을 pywinauto(UI Automation)로 직접 조작합니다 — 이 앱이 제공하는 공식 API가 없어서, 사람이 마우스/키보드로 하는 조작을 그대로 흉내 내는 방식입니다.</p>
+      <p>대시보드 서버 자체(메시지 목록, 상용문구 관리, 계정 관리)는 OS 무관하게 뜨지만, 실제 발송(<code>/api/send</code>)과 감시 데몬은 pywinauto가 Windows 전용(pywin32 의존)이라 그 기능만 Windows PC에서만 동작합니다 — <code>phone_link</code> 관련 import는 전부 함수 안에서 지연 import되어, 리눅스/개발 환경에서도 앱 자체는 문제없이 켜집니다.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>구성 요소</th><th>실행 위치</th><th>역할</th></tr></thead>
+          <tbody>
+            <tr><td><code>app.py</code></td><td>Windows PC (OS 무관하게 뜨긴 함)</td><td>Flask 대시보드 서버, SQLite 접근, 세션/권한, 발송 API</td></tr>
+            <tr><td><code>watch_daemon.py</code></td><td>Windows PC (app.py와 같은 PC)</td><td>휴대폰과 연결 앱 화면을 주기적으로 훑어 새 문자를 <code>app.py</code>에 POST</td></tr>
+            <tr><td><code>phone_link.py</code></td><td>-</td><td>위 둘이 공유하는 라이브러리. pywinauto로 휴대폰과 연결 창을 찾아 읽고/쓴다</td></tr>
+            <tr><td>SQLite (<code>auto_sms.db</code>)</td><td>로컬 파일</td><td>messages/templates/settings/users 4개 테이블. WAL 모드</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>02 · 아키텍처</h2>
+      <p class="sec-desc">브라우저가 다른 애플리케이션의 창을 직접 읽을 수 없는 건 auto_sms도 마찬가지입니다 — 그래서 "별도 프로세스가 그 창을 대신 읽어 HTTP로 서버에 올려준다"는, NDMS의 situation_capture.py와 같은 큰 구조를 씁니다.</p>
+
+      <h3>수신 흐름</h3>
+      <div class="flow">
+        <div class="flow-step"><span class="fnum">1</span>휴대폰이 문자 수신 → 블루투스/Wi-Fi로 PC의 휴대폰과 연결 앱에 동기화</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="fnum">2</span><code>watch_daemon.py</code>가 5초 간격으로 <code>phone_link.watch_notifications()</code> 호출 — 알림 패널을 polling</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="fnum">3</span>새 줄 발견 시 <code>POST /api/messages</code> (phone_number/body/msg_time)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="fnum">4</span>app.py가 dedup_key로 중복 확인 후 저장, 업무외 자동발송 여부 판단 후 별도 스레드로 디스패치</div>
+      </div>
+
+      <h3>발송 흐름</h3>
+      <div class="flow">
+        <div class="flow-step"><span class="fnum">1</span>대시보드 "발송" 버튼 → <code>POST /api/send</code> (또는 자동발송 트리거)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="fnum">2</span>app.py가 <code>_send_lock</code>으로 동시 발송 직렬화 후 <code>phone_link.send_message()</code> 호출</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="fnum">3</span>pywinauto가 휴대폰과 연결 창을 복원 → 대화 찾기/새로 만들기 → 타이핑 → 전송 버튼 클릭</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="fnum">4</span>DB에 발신 메시지 기록, 원래 최소화 상태였으면 창을 다시 최소화</div>
+      </div>
+
+      <h3>단일 프로세스 + threaded=False인 이유</h3>
+      <p><code>app.run()</code>이 기본값(threaded=False)으로 요청을 한 번에 하나씩만 처리합니다. 업무외 자동발송(<code>_maybe_send_auto_reply</code>)처럼 몇 초 걸릴 수 있는 UI 자동화를 요청 스레드에서 그대로 기다리면, 그사이 들어오는 다른 요청(특히 <code>watch_daemon.py</code>의 수신 문자 저장)이 전부 막혀버립니다. 그래서 <code>_dispatch_auto_reply()</code>가 별도 데몬 스레드로 넘겨, 수신 문자 저장 응답은 항상 즉시 돌아가고 서버가 계속 다른 요청을 받을 수 있게 합니다.</p>
+      <div class="callout note">
+        <span class="callout-label">참고</span>
+        <p>새로 뜨는 스레드에서 pywinauto(UI Automation/COM)를 처음 쓰려면 그 스레드용으로 <code>pythoncom.CoInitializeEx()</code>를 따로 호출해야 합니다 — 메인 스레드에서 이미 COM을 썼다고 다른 스레드까지 적용되지 않습니다. <code>_dispatch_auto_reply()</code>의 <code>run()</code> 내부가 이걸 처리하고, 실패하면(리눅스 등) 조용히 건너뜁니다.</p>
+      </div>
+
+      <h3>동시 발송 직렬화</h3>
+      <p>휴대폰과 연결 창은 하나뿐인데, "발송" 버튼(<code>/api/send</code>)과 업무외 자동발송(별도 스레드)이 동시에 겹치면 같은 창을 두 흐름이 같이 건드려 엉뚱한 대화방에 타이핑되거나 문구가 섞일 수 있습니다. 모듈 전역 <code>_send_lock = threading.Lock()</code>으로 실제 발송(<code>phone_link.send_message()</code> 호출)은 항상 한 번에 하나씩만 진행되게 막습니다.</p>
+
+      <h3>디렉터리 구성</h3>
+      <pre><code>auto_sms/
+├── app.py                  # Flask 앱, 라우트, 세션/CSRF, 자동발송 디스패치
+├── db.py                   # SQLite 연결/스키마/마이그레이션
+├── phone_link.py            # pywinauto로 휴대폰과 연결 앱 조작 (926줄)
+├── watch_daemon.py          # 상시 감시 데몬 (별도 프로세스)
+├── seed_demo_data.py         # 데모/스크린샷용 더미 데이터 삽입 스크립트
+├── start_server.bat / stop_server.bat
+├── templates/
+│   ├── login.html
+│   └── dashboard.html        # 586줄, 단일 페이지 대시보드
+├── static/js/dashboard.js     # 1009줄, 전체 화면 로직
+├── auto_sms.db                # SQLite (git 미포함)
+└── requirements.txt</code></pre>
+    </section>
+
+    <section id="data">
+      <h2>03 · 데이터 모델</h2>
+      <p class="sec-desc">4개 테이블, 전부 <code>db.py</code>의 <code>init_db()</code>가 시작 시 <code>CREATE TABLE IF NOT EXISTS</code>로 생성합니다. WAL 모드 + <code>busy_timeout=5000</code>으로 대시보드(여러 사람 동시 접속)와 <code>watch_daemon.py</code>(별도 프로세스)가 같은 DB 파일에 거의 동시에 쓰는 경합을 견딥니다.</p>
+
+      <h3><code>messages</code></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>컬럼</th><th>타입</th><th>비고</th></tr></thead>
+          <tbody>
+            <tr><td>phone_number</td><td>TEXT</td><td>상대 번호. 폰 주소록 저장 이름으로 뜨는 경우 그 문자열이 그대로 들어갈 수 있음(전화번호 형식이 아닐 수 있음)</td></tr>
+            <tr><td>direction</td><td>TEXT</td><td><code>in</code>(수신)/<code>out</code>(발신) 체크 제약</td></tr>
+            <tr><td>dedup_key</td><td>TEXT UNIQUE</td><td><code>phone_number|msg_time|body</code>. 워처가 같은 화면을 반복해서 훑어도 중복 저장 방지. 발신 기록은 NULL(SQLite는 NULL끼리 UNIQUE 충돌 안 봄)</td></tr>
+            <tr><td>status</td><td>TEXT</td><td>처리상태(미처리/답변완료(조치예정)/중장기검토/처리기한 미도래/처리불가/처리완료/타기관 이송) — 자유 텍스트 컬럼이지만 화면은 고정 목록만 씀</td></tr>
+            <tr><td>manual_input / receipt_no</td><td>TEXT</td><td>담당자가 목록에서 직접 입력하는 자유 텍스트(입력 경로/접수번호)</td></tr>
+            <tr><td>thread_id</td><td>INTEGER</td><td>수동 병합되었거나 자동발송/발송으로 명시적으로 앵커링된 스레드 묶음 id. 기본 NULL — 없으면 <code>_build_threads()</code>가 번호+시간순으로 추정해서 묶음(06장)</td></tr>
+            <tr><td>auto_sent</td><td>INTEGER</td><td>업무외 자동발송으로 나간 답신이면 1 — 화면에 "자동" 배지</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>뒤 5개 컬럼(status~auto_sent)은 <code>_migrate_message_columns()</code>가 <code>PRAGMA table_info</code>로 존재 여부를 확인해 없으면 <code>ALTER TABLE</code>로 추가합니다 — 이미 운영 중인 DB에 코드만 업데이트해도 무중단으로 스키마가 따라잡히는 자체 마이그레이션 패턴입니다.</p>
+
+      <h3><code>templates</code> · <code>settings</code> · <code>users</code></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>테이블</th><th>구조</th><th>용도</th></tr></thead>
+          <tbody>
+            <tr><td><code>templates</code></td><td>id, title, body, sort_no</td><td>상용문구. sort_no로 드롭다운 표시 순서 지정</td></tr>
+            <tr><td><code>settings</code></td><td>key TEXT PK, value TEXT</td><td>범용 키-값 저장소 — Flask secret key, watcher heartbeat 시각, 업무외 자동발송 설정(enabled/template_id/quiet_minutes) 전부 여기</td></tr>
+            <tr><td><code>users</code></td><td>id, username, password_hash, is_admin</td><td>werkzeug <code>generate_password_hash</code>로 저장. 계정이 하나도 없으면 첫 로그인 화면이 관리자 계정 생성 폼으로 바뀜(04장)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout note">
+        <span class="callout-label">참고</span>
+        <p>Flask 세션 서명키(<code>flask_secret_key</code>)를 코드에 박아두지 않고, 서버가 처음 뜰 때 <code>secrets.token_hex(32)</code>로 한 번 생성해 <code>settings</code> 테이블(로컬 DB, git 미포함)에 저장하고 계속 재사용합니다 — 재시작마다 값이 바뀌면 팀원 전체 로그인이 풀리는 걸 방지합니다.</p>
+      </div>
+    </section>
+
+    <section id="auth">
+      <h2>04 · 인증 · 보안</h2>
+      <p class="sec-desc">세션 쿠키 + Origin/Referer 기반 CSRF 방어 + 로컬호스트 한정 예외 2개(watch_daemon 전용). 규모(3명)에 맞춰 최소한으로 구성되어 있습니다.</p>
+
+      <h3>첫 실행 부트스트랩</h3>
+      <p><code>/login</code> 라우트가 <code>SELECT COUNT(*) FROM users</code>로 계정이 하나도 없는지 확인합니다(<code>first_run</code>). 없으면 로그인 폼 대신 "아이디/비밀번호를 그 자리에서 정해 첫 관리자 계정을 만드는" 폼으로 렌더링됩니다 — 기본 비밀번호를 코드에 미리 박아두지 않기 위한 설계입니다.</p>
+
+      <h3>CSRF / Same-Origin 검사</h3>
+      <p><code>@app.before_request</code>로 등록된 <code>_verify_same_origin()</code>이 모든 POST에 대해 <code>Origin</code>(없으면 <code>Referer</code>)이 이 서버 자신인지 확인하고, 아니면 403을 던집니다. violation 프로젝트의 같은 검사와 동일한 방식입니다.</p>
+
+      <h3>로그인 없이 접근 가능한 예외 (<code>_LOCAL_MACHINE_ENDPOINTS</code>)</h3>
+      <p><code>watch_daemon.py</code>는 브라우저가 아니라 <code>requests</code>로 직접 호출하므로 로그인 세션 쿠키도, Origin/Referer 헤더도 없습니다. 그래서 <code>api_save_message</code>·<code>api_heartbeat</code> 두 엔드포인트만 로그인/CSRF 검사에서 빠지는데, 대신 <code>_is_localhost_request()</code>(<code>request.remote_addr</code>가 127.0.0.1/::1)로 "이 서버 자신에서 온 요청"인지 확인합니다 — <code>watch_daemon.py</code>는 항상 서버와 같은 PC에서 돌기 때문에 이 조건으로 외부 접근을 차단할 수 있습니다.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>검사</th><th>적용 대상</th><th>실패 시</th></tr></thead>
+          <tbody>
+            <tr><td><code>_verify_same_origin</code></td><td>모든 POST (2개 예외 제외)</td><td>403</td></tr>
+            <tr><td><code>_require_login</code></td><td>로그인/정적파일 제외 전체</td><td>API: 401 JSON / 페이지: <code>/login</code> 리다이렉트</td></tr>
+            <tr><td><code>_is_localhost_request</code></td><td><code>api_save_message</code>, <code>api_heartbeat</code>만</td><td>위 두 검사(로그인/CSRF)를 그대로 적용받음</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>계정 관리</h3>
+      <p>관리자만 <code>/api/users</code>(목록/생성), <code>/api/users/&lt;id&gt;/reset_password</code>를 쓸 수 있습니다. 이메일 인증 등 본인확인 절차 없이 관리자가 팀원 비밀번호를 직접 재설정하는 방식으로, 3인 규모(관리자가 팀원을 서로 다 아는 사이)에 맞춘 의도적으로 단순한 설계입니다.</p>
+    </section>
+
+    <section id="api">
+      <h2>05 · API 레퍼런스</h2>
+      <p class="sec-desc">모든 <code>/api/*</code> 실패 응답은 <code>{"error": "..."}</code> JSON입니다.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>메서드</th><th>경로</th><th>권한</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="method m-get">GET</span>/<span class="method m-post">POST</span></td><td><code>/login</code></td><td>-</td><td>첫 실행이면 관리자 계정 생성 폼, 아니면 일반 로그인</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/logout</code></td><td>로그인</td><td>세션 클리어</td></tr>
+            <tr><td><span class="method m-get">GET</span></td><td><code>/api/users</code></td><td>admin</td><td>계정 목록</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/users</code></td><td>admin</td><td>계정 생성</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/users/&lt;id&gt;/reset_password</code></td><td>admin</td><td>비밀번호 강제 재설정</td></tr>
+            <tr><td><span class="method m-get">GET</span></td><td><code>/api/messages</code></td><td>로그인</td><td>스레드 목록 조회. <code>phone</code>/<code>since</code>/<code>until</code>/<code>limit</code> 쿼리. 응답은 <code>_build_threads()</code>가 묶은 <code>{"threads":[...]}</code></td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/messages</code></td><td>로컬호스트만</td><td><code>watch_daemon.py</code> 전용. 새 수신 문자 저장 + 업무외 자동발송 트리거</td></tr>
+            <tr><td><span class="method m-patch">PATCH</span></td><td><code>/api/messages/&lt;id&gt;/status</code></td><td>로그인</td><td>처리상태만 변경</td></tr>
+            <tr><td><span class="method m-put">PUT</span></td><td><code>/api/messages/&lt;id&gt;</code></td><td>로그인</td><td>입력/접수번호 동시 저장(항상 둘 다 같이 보냄)</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/messages/delete</code></td><td>로그인</td><td>선택한 스레드(+답신) 일괄 삭제</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/threads/merge</code></td><td>로그인</td><td>스레드 2개 이상을 하나의 thread_id로 병합</td></tr>
+            <tr><td><span class="method m-get">GET</span></td><td><code>/api/templates</code></td><td>로그인</td><td>상용문구 목록(sort_no 순)</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/templates</code></td><td>로그인</td><td>추가</td></tr>
+            <tr><td><span class="method m-put">PUT</span> / <span class="method m-delete">DELETE</span></td><td><code>/api/templates/&lt;id&gt;</code></td><td>로그인</td><td>수정 / 삭제</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/heartbeat</code></td><td>로컬호스트만</td><td><code>watch_daemon.py</code> 전용. 감시 생존 신호</td></tr>
+            <tr><td><span class="method m-get">GET</span></td><td><code>/api/status</code></td><td>로그인</td><td>감시 생존 여부, 업무시간 여부, 자동발송 on/off — 상단 배지가 씀</td></tr>
+            <tr><td><span class="method m-get">GET</span> / <span class="method m-put">PUT</span></td><td><code>/api/settings/auto_reply</code></td><td>로그인</td><td>업무외 자동발송 설정 조회/저장</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/send</code></td><td>로그인</td><td>실제 문자 발송 (Windows 전용, phone_link 지연 import)</td></tr>
+            <tr><td><span class="method m-post">POST</span></td><td><code>/api/shutdown</code></td><td>로그인</td><td>서버 프로세스 자체 종료</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><code>/api/messages</code> GET의 기간 필터는 <code>since</code>/<code>until</code>(YYYY-MM-DD)만 받고, 예전 <code>limit=100</code> 단독 방식(몇 달 쌓이면 지난달 민원이 검색에도 안 잡히는 문제가 있었음)을 대체합니다. limit은 이제 한 번에 너무 많이 실어보내지 않기 위한 상한 역할만 합니다.</p>
+    </section>
+
+    <section id="threads">
+      <h2>06 · 스레드 묶기 로직 (<code>_build_threads()</code>)</h2>
+      <p class="sec-desc">한 민원(수신 문자)에 답신(발신 문자)이 여러 개 이어질 수 있어서, 평평한 메시지 목록을 "민원 + 그 이후 답신들" 스레드 단위로 묶는 함수입니다. 이 앱에서 가장 까다로운 로직입니다.</p>
+
+      <h3>우선순위: thread_id &gt; 시간순 추정</h3>
+      <p><code>thread_id</code>가 찍혀 있는 메시지는 그 값이 같은 것끼리 무조건 한 스레드로 묶입니다 — 체크박스로 수동 병합된 경우(<code>/api/threads/merge</code>)뿐 아니라, "+ 문자발송"으로 보낸 답신도 어느 민원 밑 send-box에서 나갔는지(<code>complaint_id</code>)에 따라 명시적으로 묶입니다.</p>
+      <p><code>thread_id</code> 없이 들어오는 발신 문자(업무외 자동발송의 옛 방식, watch_daemon이 감지한 옛 데이터 등)에 한해서만, "같은 번호로 그 민원보다 나중에 온 발신 문자는 답신"이라는 시간순 휴리스틱으로 보조적으로 묶습니다.</p>
+      <div class="callout drift">
+        <span class="callout-label">왜 시간순만으론 안 되는가</span>
+        <p>같은 번호로 서로 다른 민원이 따로 와 있을 수 있습니다. 번호만 보고 "그 민원보다 나중에 온 발신 문자는 다 답신"으로 넘겨짚으면, 오래된 민원에 대한 답신이 그 번호의 <b>최신</b> 민원 스레드로 잘못 붙어버리는 사고로 이어집니다(실제로 확인된 문제) — 그래서 발송(<code>/api/send</code>)과 자동발송(<code>_maybe_send_auto_reply</code>) 둘 다 <code>complaint_id</code>를 명시적으로 받아 앵커링합니다.</p>
+      </div>
+
+      <h3>자기 앵커링</h3>
+      <p>어떤 민원이 아직 한 번도 병합/앵커된 적 없으면(<code>thread_id IS NULL</code>), 발송 시점에 <b>자기 자신의 id</b>를 thread_id로 삼아 스스로를 앵커로 만듭니다. 이렇게 해두면 발송이 진행되는 몇 초 사이 같은 번호로 다른 민원이 새로 들어와도(<code>_build_threads()</code>의 "이 번호의 현재 열린 스레드" 포인터가 옮겨가도) 답신은 항상 자신을 유발한 민원 밑에 정확히 붙습니다. <code>/api/send</code>와 <code>_maybe_send_auto_reply()</code> 양쪽에 동일한 패턴이 반복됩니다.</p>
+
+      <h3>범위 한계</h3>
+      <p>GET으로 넘어온 <code>limit</code> 범위 안에서만 묶으므로, 아주 오래된 민원의 답신이 지금 화면에 안 보이는 범위에 있으면 별도 스레드로 갈라져 보일 수 있습니다. "최근 메시지" 목록이 최근 활동을 보여주는 용도라 실용적으로 충분하다고 보고, 정확성을 위해 전체 이력을 매번 조회하지는 않습니다.</p>
+    </section>
+
+    <section id="watcher">
+      <h2>07 · 감시 데몬 · phone_link.py</h2>
+      <p class="sec-desc">926줄짜리 <code>phone_link.py</code>가 이 프로젝트의 핵심입니다 — 공식 API가 없는 Windows 앱을 UI Automation만으로 안정적으로 읽고 쓰는 데 코드 대부분이 쓰였습니다.</p>
+
+      <h3>창 찾기</h3>
+      <p>창 제목이 아니라 프로세스명(<code>PhoneExperienceHost.exe</code>) 기준으로 먼저 찾습니다 — 제목 문자열 매칭은 우연히 같은 단어가 들어간 다른 창(메모장 등)을 잘못 잡을 위험이 있어서입니다. 최소화된 창도 찾을 수 있도록 <code>visible_only=False</code>로 검색하는 <code>_top_window_any_state()</code>를 별도로 둡니다 — pywinauto uia 백엔드의 기본 "visible" 판정이 <code>IsOffscreen</code> 기준이라, 최소화된 창은 기본 검색에서 아예 안 잡히기 때문입니다.</p>
+
+      <h3>감시 방식 2가지</h3>
+      <div class="grid-2">
+        <div class="card">
+          <h4>알림 패널 (기본, <code>watch_notifications()</code>)</h4>
+          <p>홈 화면 "알림" 패널(<code>NotificationsListScrollHost</code>)을 훑음. 블루투스만으로도 채워지는 걸 확인해, Wi-Fi가 막힌 행정망 PC에서도 동작. 대신 미리보기라 원문이 길면 잘릴 수 있음.</p>
+        </div>
+        <div class="card">
+          <h4>대화 목록 (<code>--source messages</code>)</h4>
+          <p><code>CVSListView</code>를 훑음. 본문 동기화에 Wi-Fi가 필요하지만 원문이 잘리지 않음. 가상화된 목록이라 화면 밖 항목은 좌표가 (0,0,0,0) — 스크롤해서 렌더링시켜야 클릭 가능.</p>
+        </div>
+      </div>
+
+      <h3>알림 카드의 "누적" 구조와 위치 기반 diff</h3>
+      <p>같은 상대와 문자를 주고받을수록 알림 카드 하나가 "A" → "A B" → "A B C"처럼 줄이 계속 쌓입니다. 그래서 "마지막 줄만" 비교하는 대신, 발신자별로 지금까지 본 줄을 전부 기억해뒀다가 매 폴링마다 "카드 전체 줄 목록이 지난번 목록 뒤에 그대로 이어붙었는지"를 위치로 비교해 새 줄만 콜백에 넘깁니다(<code>_new_lines_since()</code>). 내용이 아니라 위치로 비교하기 때문에, 완전히 같은 문구를 짧은 간격으로 여러 번 보내도 매번 정확히 새 줄로 잡힙니다 — 내용 비교였다면 두 번째부터 "이미 본 문구"로 착각해 건너뛰었을 것입니다.</p>
+
+      <h3>발신자가 "나"로 뜨는 카드 복구</h3>
+      <p>우리가 마지막으로 답신을 보낸 뒤로는 상대가 새 문자를 보내기 전까지 카드의 발신자 표시가 계속 "나"로 남아있는 게 실제로 확인됐습니다. 예전 코드는 이 경우 항목을 통째로 버려서 그 번호의 진행 상태를 갱신하지 못하고 계속 건너뛰었는데, 다행히 진짜 상대방 번호가 본문 후보 줄들 사이에 소제목처럼 다시 나오는 걸 발견해 이를 복구에 씁니다 — 단, 방향성 격리 문자(U+2068~U+2069)로 감싸인 "필드성" 값일 때만 소제목으로 인정해서, 상대가 문자 내용으로 진짜 전화번호를 보낸 경우와 구분합니다.</p>
+
+      <h3>bidi 문자 제거</h3>
+      <p>발신자/시각 필드에 윈도우 UI가 자동으로 끼워넣는 양방향 텍스트 제어 문자(예: <code>"⁨010-2405-3466⁩"</code>)가 <code>window_text()</code>로 읽으면 그대로 섞여 나와, 정규식 매칭 전에 <code>_clean_bidi()</code>로 제거해야 합니다.</p>
+
+      <h3>발송: 기존 대화 찾기 → 새 메시지 폴백</h3>
+      <p>대화 목록 행의 접근성 이름("{번호}와의 대화 메시지 미리 보기 ...")을 정리한 텍스트로 직접 비교해 매칭합니다(pywinauto의 <code>title_re</code>는 bidi 문자 때문에 매칭 실패). 못 찾거나 스크롤해도 렌더링 안 되거나 클릭이 안 먹으면 "새 메시지"로 폴백 — 같은 번호를 입력해도 앱이 기존 대화로 이어주므로 안전망 역할을 합니다.</p>
+
+      <h3>중복 방지 3중 구조</h3>
+      <ol>
+        <li><code>dedup_key</code>(UNIQUE 제약, <code>INSERT OR IGNORE</code>) — 같은 화면을 반복 폴링해도 DB에 한 번만 저장</li>
+        <li><code>self_echo</code> 확인(<code>api_save_message</code>) — 우리가 보낸 답신이 알림에 다시 잡혀 수신 문자로 오인되는 걸, 최근 1일 내 같은 번호·같은 문구의 발신 기록과 대조해 걸러냄</li>
+        <li>재시작 시 <code>_load_recent_seen()</code> — <code>watch_daemon.py</code>를 껐다 켜면 phone_link의 "이미 처리한 내용" 메모리가 초기화되는데, 서버가 이미 아는 내용을 재시작 전 불러와 <code>seen_lines_by_sender</code>에 미리 채워 중복 저장을 방지</li>
+      </ol>
+
+      <h3>heartbeat</h3>
+      <p><code>watch_daemon.py</code>가 매 폴링 주기(기본 5초)마다 <code>/api/heartbeat</code>를 호출합니다. <code>app.py</code>는 마지막 시각을 <code>settings</code>에 저장하고, <code>/api/status</code>가 <code>WATCHER_STALE_SECONDS=60</code>초 이상 신호가 없으면 <code>alive=False</code>로 응답 — 대시보드 상단 "수신 감시 중단" 배너가 이 값을 씁니다. 신호를 한 번도 못 받은 상태(<code>last_seen</code> 없음)도 "정상"으로 단정하지 않고 같은 경고로 처리됩니다.</p>
+    </section>
+
+    <section id="autoreply">
+      <h2>08 · 업무외 자동발송</h2>
+      <p class="sec-desc"><code>_maybe_send_auto_reply()</code> 하나에 이 기능의 모든 판단이 모여 있습니다.</p>
+
+      <h3>업무시간은 게이트가 아니라 표시值</h3>
+      <p>토글이 켜져 있으면 평일 업무시간(<code>_is_business_hours()</code>, 09:00–18:00)이 되어도 자동으로 꺼지거나 막히지 않습니다. 요일만으로는 공휴일을 판별할 수 없어서(평일이지만 쉬는 날), "업무시간이니 자동 대기"하는 판단을 시스템이 대신하지 않고 담당자가 토글로 직접 켜고 끄도록 설계를 뒤집은 것 — 화면(<code>/api/status</code>, <code>/api/settings/auto_reply</code> 둘 다 <code>business_hours_now</code>를 내려줌)은 참고 정보로만 보여줍니다.</p>
+
+      <h3>스팸 방지 (quiet_minutes)</h3>
+      <p>같은 번호로 문자를 나눠 보내는 경우처럼 짧은 시간 안에 여러 통이 오면, 매 통마다 자동발송이 나가는 걸 막기 위해 최근 <code>quiet_minutes</code>(기본 1분, <code>settings</code>에서 실시간 변경 가능)분 안에 이미 발신 기록이 있으면 건너뜁니다.</p>
+
+      <h3>발송 전 기록 → 실패 시 롤백</h3>
+      <p>DB 기록을 <b>발송보다 먼저</b> 남기고(<code>direction='out', auto_sent=1</code>), <code>phone_link.send_message()</code>가 예외를 던지면 그 행을 삭제하는 순서를 씁니다. 반대 순서(발송 후 기록)였다면 "문자는 실제로 나갔는데 서버 재시작(git pull로 인한 use_reloader 재시작 타이밍 등) 때문에 기록 코드까지 못 갔다"는, 원인 파악이 훨씬 어려운 실패 모드로 이어질 수 있습니다.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>설정 키(settings 테이블)</th><th>기본값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><code>auto_reply_enabled</code></td><td>"0"</td><td>켜짐/꺼짐</td></tr>
+            <tr><td><code>auto_reply_template_id</code></td><td>(없음)</td><td>발송할 상용문구. 꺼져 있어도 값은 유지될 수 있음</td></tr>
+            <tr><td><code>auto_reply_quiet_minutes</code></td><td>"1"</td><td>스팸 방지 윈도우(분)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="frontend">
+      <h2>09 · 프론트엔드 구조</h2>
+      <p class="sec-desc">SPA 프레임워크 없이 <code>dashboard.html</code>(586줄, 인라인 CSS) + <code>dashboard.js</code>(1009줄, 바닐라 JS)로 이뤄진 단일 페이지입니다.</p>
+
+      <h3>폴링 주기</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>함수</th><th>주기</th><th>이유</th></tr></thead>
+          <tbody>
+            <tr><td><code>loadMessages</code></td><td>15초</td><td>워처가 새로 저장한 수신 문자를 화면에 자동 반영</td></tr>
+            <tr><td><code>loadStatus</code></td><td>10초</td><td>감시 중단/자동발송 경고를 좀 더 자주 확인</td></tr>
+            <tr><td><code>loadAutoReplySettings</code></td><td>10초</td><td>업무시간이 바뀌면 안내 문구도 따라가고, 다른 PC에서 켜고/끈 것도 빨리 반영</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>목록/자동발송 설정 폴링은 지금 그 입력 칸에 포커스가 있으면(타이핑 중이면) 값을 덮어쓰지 않도록 <code>document.activeElement</code>를 확인합니다 — 10~15초마다 값이 갱신되는데 타이핑을 방해하면 안 되기 때문입니다.</p>
+
+      <h3>커스텀 토글 스위치의 클릭 가로채기 문제</h3>
+      <p>업무외 자동발송 토글은 <code>&lt;input type=checkbox&gt;</code>(<code>opacity:0</code>)와 그 위를 덮는 <code>.track</code> <code>&lt;span&gt;</code>으로 구현되어 있습니다. 일반적인 <code>.click()</code>은 실제 input이 아니라 위에 그려진 <code>.track</code>이 클릭을 가로채 씹힐 수 있어, 자동화/테스트 코드에서는 <code>force=True</code> 클릭이 필요합니다(사람이 마우스로 누르는 것 자체는 정상 동작).</p>
+
+      <h3>자동발송 저장 순서 의존성</h3>
+      <p><code>saveAutoReplySettings()</code>는 <code>enabled</code>가 true인데 <code>templateId</code>가 비어 있으면 저장을 거부하고 체크박스를 도로 끕니다(<code>rename_image</code>류의 "친절한 되돌림" 패턴과 동일한 취지). 그래서 화면·자동화 스크립트 모두 <b>문구 선택 → 토글 켜기</b> 순서를 지켜야 하며, 반대로 하면 토글이 켜지자마자 꺼지는 것처럼 보입니다.</p>
+    </section>
+
+    <section id="ops">
+      <h2>10 · 운영 노트</h2>
+      <h3>기동 · 종료</h3>
+      <pre><code>start_server.bat
+# → requirements.txt pip install(멱등) → logs\ 폴더 생성
+#   → app.py, watch_daemon.py를 각각 창 없이 백그라운드로 기동
+#   → 표준출력/에러를 logs\app_YYYY-MM-DD.log 등으로 리다이렉트
+
+stop_server.bat
+# → CommandLine에 app.py 또는 watch_daemon.py가 포함된 python.exe 프로세스만 골라 종료
+#   (taskkill /IM python.exe처럼 전체를 죽이지 않음)</code></pre>
+
+      <h3>템플릿 자동 재로드</h3>
+      <p><code>app.config["TEMPLATES_AUTO_RELOAD"] = True</code> — git pull로 <code>dashboard.html</code>이 바뀌어도 서버 재시작 없이 다음 요청부터 바로 반영됩니다(Flask 기본값은 템플릿을 한 번 읽으면 계속 캐시).</p>
+
+      <h3>설치 의존성</h3>
+      <p><code>requirements.txt</code>는 <code>pywinauto</code>/<code>pywin32</code>를 <code>sys_platform == "win32"</code> 조건부로 선언합니다 — 리눅스/개발 환경에서 <code>pip install -r requirements.txt</code>를 그대로 돌려도 이 둘은 건너뛰어지고, 대시보드 서버 자체(메시지 목록/상용문구 관리)는 문제없이 동작합니다.</p>
+
+      <h3>데모 데이터</h3>
+      <p><code>seed_demo_data.py</code>가 고정된 <code>DEMO_PHONES</code> 번호로 데모 민원/답신을 삽입합니다. <code>--clear</code>로 그 데모 데이터만 안전하게 제거할 수 있어(실제 데이터는 건드리지 않음), 스크린샷·시연용 데이터를 채웠다 지우는 용도로 씁니다.</p>
+
+      <h3>알려진 제약</h3>
+      <ul>
+        <li>한 PC에서 한 세트의 휴대폰과 연결 창만 조작 가능 — 여러 회선을 동시에 감시하려면 PC/창을 분리해야 함</li>
+        <li><code>app.run()</code>이 <code>threaded=False</code>라 요청이 완전히 직렬 처리됨 — 자동발송을 별도 스레드로 뺀 것도 이 제약을 우회하기 위함(02장)</li>
+        <li>발송은 창이 화면에 실제로 보이는 상태여야 동작 — 최소화된 채로는 불가능해, 발송 직전 자동 복원 후 다시 최소화</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <p>이 문서는 app.py, db.py, phone_link.py, watch_daemon.py, templates/dashboard.html, static/js/dashboard.js를 직접 읽고 작성되었습니다. 기능이 추가될 때마다 이 문서도 같이 갱신하는 것을 권장합니다.</p>
+</footer>
+
+</body></html>
