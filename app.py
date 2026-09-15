@@ -9,10 +9,15 @@ watch_daemon.py와 phone_link.py는 pywinauto(Windows 전용)를 쓰므로 이 �
 자체는 아무 OS에서나 뜨지만, 실제 발송(/api/send)과 감시 데몬은 휴대폰
 연결 앱이 설치된 윈도우 PC에서만 동작한다.
 """
+import os
+import secrets
+import subprocess
 import threading
+import time
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, abort, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import get_db, get_setting, init_db, make_dedup_key, now_local, set_setting
 
@@ -22,11 +27,199 @@ app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
 
+# 세션 쿠키에 서명할 때 쓰는 비밀키 — 코드에 박아두면(그리고 깃허브에
+# 올라가면) 그 값을 아는 사람이 세션을 위조할 수 있고, 재시작마다 값이
+# 바뀌면 다들 로그인이 풀려버린다. 그래서 처음 뜰 때 한 번만 무작위로
+# 만들어 settings 테이블(로컬 DB, git에 안 올라감)에 저장해두고 계속
+# 재사용한다.
+_secret_key = get_setting("flask_secret_key")
+if not _secret_key:
+    _secret_key = secrets.token_hex(32)
+    set_setting("flask_secret_key", _secret_key)
+app.secret_key = _secret_key
+
+# phone_link.send_message()는 실제 마우스 클릭/키보드 입력으로 휴대폰과
+# 연결 앱 창 하나를 조작한다 - 발송 버튼(api_send)과 업무외 자동발송
+# (_dispatch_auto_reply, 별도 스레드)이 동시에 겹치면 같은 창을 두 흐름이
+# 같이 건드려서 엉뚱한 대화방에 타이핑되거나 문구가 섞여 나갈 수 있다.
+# 이 락으로 실제 발송은 항상 한 번에 하나씩만 진행되게 한다.
+_send_lock = threading.Lock()
+
+
+# ── 로그인 ───────────────────────────────────────────────
+# 로그인 화면(및 그 화면이 쓰는 정적 파일)만 예외 — 그 외 모든 페이지/API는
+# 로그인해야 접근 가능하다.
+_AUTH_EXEMPT_ENDPOINTS = {"login", "static"}
+
+# watch_daemon.py(휴대폰과 연결 앱 화면을 읽어 이 서버로 올리는 별도
+# 프로세스)는 브라우저가 아니라 requests 라이브러리로 직접 호출한다 —
+# 로그인 세션 쿠키도 없고 Origin/Referer 헤더도 안 보낸다. 그래서 이 두
+# 엔드포인트만 로그인/CSRF 검사에서 빼주는데, 대신 아무나 네트워크에서
+# 두드릴 수 있으면 안 되니 _is_localhost_request()로 "이 서버 자신"에서
+# 온 요청인지 확인한다 — watch_daemon.py는 항상 서버와 같은 PC에서 돈다
+# (모듈 상단 설명 참고).
+_LOCAL_MACHINE_ENDPOINTS = {"api_save_message", "api_heartbeat"}
+
+
+def _is_localhost_request():
+    return request.remote_addr in ("127.0.0.1", "::1")
+
+
+def _current_user():
+    """로그인한 사용자 정보(dict) 또는 None. session.permanent를 안 켜서
+    (기본값 False) 브라우저를 닫으면 세션 쿠키가 사라지고 로그아웃된다."""
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    conn = get_db()
+    row = conn.execute("SELECT id, username, is_admin FROM users WHERE id=?", (uid,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+# 이 앱은 로그인/세션이 생기면서 상태를 바꾸는(POST) 요청마다 브라우저가
+# 자동으로 붙여주는 Origin/Referer 헤더가 이 서버 자신인지 확인해서, 다른
+# 사이트가 로그인된 브라우저를 통해 몰래 보낸 요청(CSRF)을 걸러낸다 —
+# 정상적인 요청은 전부 이 화면 안의 폼/버튼에서 나오므로 Origin이 항상 이
+# 서버 자신이다. violation 프로젝트의 같은 검사와 동일한 방식.
+@app.before_request
+def _verify_same_origin():
+    if request.method != "POST" or request.endpoint in _LOCAL_MACHINE_ENDPOINTS:
+        return
+    expected = request.host_url.rstrip("/")
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        if origin.rstrip("/") != expected:
+            abort(403)
+        return
+    referer = request.headers.get("Referer")
+    if referer is not None and (referer == expected or referer.startswith(expected + "/")):
+        return
+    abort(403)
+
+
+@app.before_request
+def _require_login():
+    if request.endpoint is None or request.endpoint in _AUTH_EXEMPT_ENDPOINTS:
+        return
+    if request.endpoint in _LOCAL_MACHINE_ENDPOINTS and _is_localhost_request():
+        return
+    if _current_user():
+        return
+    # /api/*는 대시보드의 JS fetch가 부르므로, 로그인 화면으로 리다이렉트해봐야
+    # JS가 그 HTML을 JSON으로 파싱하려다 에러만 난다 — 401을 그대로 돌려준다.
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "로그인이 필요합니다"}), 401
+    return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """아직 계정이 하나도 없으면(처음 실행) 관리자 계정을 직접 만드는
+    화면으로, 그 뒤로는 평범한 로그인 화면으로 동작한다 — 기본 비밀번호를
+    코드에 박아두지 않기 위해서다."""
+    conn = get_db()
+    first_run = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    error = None
+
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        if first_run:
+            if not username or len(password) < 4:
+                error = "아이디를 입력하고, 비밀번호는 4자 이상으로 정해주세요."
+            else:
+                cur = conn.execute(
+                    "INSERT INTO users (username, password_hash, is_admin) VALUES (?,?,1)",
+                    (username, generate_password_hash(password)),
+                )
+                conn.commit()
+                session["user_id"] = cur.lastrowid
+                conn.close()
+                return redirect(url_for("index"))
+        else:
+            row = conn.execute(
+                "SELECT id, password_hash FROM users WHERE username=?", (username,)
+            ).fetchone()
+            if row and check_password_hash(row["password_hash"], password):
+                session["user_id"] = row["id"]
+                conn.close()
+                return redirect(url_for("index"))
+            error = "아이디 또는 비밀번호가 올바르지 않습니다."
+
+    conn.close()
+    return render_template("login.html", first_run=first_run, error=error)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/api/users", methods=["GET"])
+def api_list_users():
+    user = _current_user()
+    if not user["is_admin"]:
+        return jsonify({"error": "관리자만 볼 수 있습니다"}), 403
+    conn = get_db()
+    rows = conn.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id").fetchall()
+    conn.close()
+    return jsonify({"users": [dict(r) for r in rows]})
+
+
+@app.route("/api/users", methods=["POST"])
+def api_create_user():
+    user = _current_user()
+    if not user["is_admin"]:
+        return jsonify({"error": "관리자만 계정을 추가할 수 있습니다"}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username or len(password) < 4:
+        return jsonify({"error": "아이디를 입력하고, 비밀번호는 4자 이상으로 정해주세요."}), 400
+    conn = get_db()
+    if conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+        conn.close()
+        return jsonify({"error": "이미 있는 아이디입니다"}), 400
+    conn.execute(
+        "INSERT INTO users (username, password_hash, is_admin) VALUES (?,?,?)",
+        (username, generate_password_hash(password), 1 if data.get("is_admin") else 0),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/users/<int:user_id>/reset_password", methods=["POST"])
+def api_reset_password(user_id):
+    """비밀번호를 잊어버린 팀원을 위해, 관리자가 새 비밀번호를 대신
+    정해준다 - 이메일 등으로 본인 확인 후 재설정 링크를 보내는 절차는
+    이 규모(팀 3명, 관리자가 서로 다 아는 사이)에 비해 과하다고 보고,
+    "관리자가 계정을 관리한다"는 기존 방식을 그대로 확장했다."""
+    user = _current_user()
+    if not user["is_admin"]:
+        return jsonify({"error": "관리자만 비밀번호를 초기화할 수 있습니다"}), 403
+    data = request.get_json(force=True, silent=True) or {}
+    password = data.get("password") or ""
+    if len(password) < 4:
+        return jsonify({"error": "비밀번호는 4자 이상으로 정해주세요."}), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+        conn.close()
+        return jsonify({"error": "존재하지 않는 계정입니다"}), 404
+    conn.execute(
+        "UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(password), user_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
 
 # ── 대시보드 화면 ────────────────────────────────────────
 @app.route("/")
 def index():
-    return render_template("dashboard.html")
+    return render_template("dashboard.html", current_user=_current_user())
 
 
 def _build_threads(rows: list) -> list:
@@ -87,19 +280,46 @@ def _build_threads(rows: list) -> list:
 # ── 수신 메시지 ──────────────────────────────────────────
 @app.route("/api/messages", methods=["GET"])
 def api_list_messages():
-    """최근 메시지 목록. phone 파라미터를 주면 그 번호와의 대화만 반환."""
-    limit = request.args.get("limit", 100, type=int)
+    """메시지 목록. phone을 주면 그 번호와의 대화만 반환한다.
+
+    since를 주면(YYYY-MM-DD) 그 날짜 00:00 이후에 저장된 것만, until을
+    주면(YYYY-MM-DD) 그 날짜 23:59:59 이전에 저장된 것만 돌려준다 —
+    화면의 기간 선택(오늘/이번 주/이번 달/전체/직접 선택)이 쓰는 값이다.
+    직접 선택(커스텀 범위)만 since·until을 같이 보내고, 나머지 프리셋은
+    since만(전체는 둘 다 안 보냄) 보낸다. 예전에는 limit=100으로만
+    잘라서, 몇 달 쌓이면 지난달 민원은 목록에도 검색에도 아예 안 나오는
+    문제가 있었다(검색·페이지네이션이 전부 받아온 100건 안에서만 도는
+    구조라서). 이제 기간으로 끊어서 그 안은 전부 내려주고, limit은 한
+    번에 너무 많이 실어보내지 않기 위한 상한으로만 남긴다.
+
+    ⚠ 기간을 좁히면 _build_threads()가 볼 수 있는 범위도 같이 좁아진다 —
+    답신이 기간 안에 있는데 그 답신이 달린 민원이 기간 밖이면 답신만 따로
+    떨어진 스레드로 보인다(thread_id로 묶인 것은 영향 없음). 원래 limit
+    방식에도 있던 한계고, 기간을 넓히면 자연히 해소되므로 그대로 둔다."""
+    limit = request.args.get("limit", 2000, type=int)
     phone = request.args.get("phone", "").strip()
-    conn = get_db()
+    since = request.args.get("since", "").strip()
+    until = request.args.get("until", "").strip()
+
+    where = []
+    params = []
     if phone:
-        rows = conn.execute(
-            "SELECT * FROM messages WHERE phone_number=? ORDER BY id DESC LIMIT ?",
-            (phone, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        where.append("phone_number=?")
+        params.append(phone)
+    if since:
+        where.append("created_at >= ?")
+        params.append(f"{since} 00:00:00")
+    if until:
+        where.append("created_at <= ?")
+        params.append(f"{until} 23:59:59")
+    sql = "SELECT * FROM messages"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+
+    conn = get_db()
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return jsonify({"threads": _build_threads([dict(r) for r in rows])})
 
@@ -111,8 +331,10 @@ BUSINESS_END_HOUR = 18
 
 # 나눠 보낸 문자처럼 같은 번호에서 짧은 시간 안에 여러 통이 연달아 올 때,
 # 매 통마다 자동발송이 또 나가면 스팸처럼 느껴진다 — 그 번호로 이 시간(분)
-# 안에 이미 발신 문자가 나갔으면 자동발송을 건너뛴다.
-AUTO_REPLY_QUIET_MINUTES = 1
+# 안에 이미 발신 문자가 나갔으면 자동발송을 건너뛴다. auto_reply_enabled와
+# 같은 방식(settings 테이블)으로 화면에서 바로 바꿀 수 있게 뒀다 - 저장된
+# 적이 없으면(처음 실행) 이 기본값을 쓴다.
+AUTO_REPLY_QUIET_MINUTES_DEFAULT = "1"
 
 
 def _is_business_hours(now: datetime = None) -> bool:
@@ -174,12 +396,14 @@ def _dispatch_auto_reply(phone_number: str, complaint_id: int):
 
 
 def _maybe_send_auto_reply(phone_number: str, complaint_id: int):
-    """업무외 시간에 새 민원이 들어왔고 "업무외 자동발송"이 켜져 있으면,
-    화면에서 골라둔 상용문구를 그 번호로 자동 발송한다. 업무시간 안이면
-    직원이 직접 확인/발송하는 게 기본이라 아무것도 하지 않는다."""
-    if _is_business_hours():
-        return
-
+    """"업무외 자동발송" 토글이 켜져 있으면 화면에서 골라둔 상용문구를 그
+    번호로 자동 발송한다. 평일 업무시간(_is_business_hours())엔 여기서
+    막지 않는다 — 공휴일처럼 요일상 평일이지만 실제로는 아무도 없는
+    날에도 직원이 퇴근 전 토글만 켜두면 자동발송이 되어야 하기 때문이다
+    (요일만으로 공휴일을 자동 판별할 수는 없어서, 그 판단을 직원이 토글로
+    직접 하도록 뒤집은 것). 즉 토글은 껐다 켜기 전까지 계속 유지되고,
+    "업무시간이면 자동 대기"하는 동작은 더 이상 없다 — 출근하면 직접
+    꺼야 한다."""
     conn = get_db()
     try:
         if get_setting("auto_reply_enabled", "0") != "1":
@@ -192,9 +416,13 @@ def _maybe_send_auto_reply(phone_number: str, complaint_id: int):
         ).fetchone()
         if not template:
             return
+        try:
+            quiet_minutes = int(get_setting("auto_reply_quiet_minutes", AUTO_REPLY_QUIET_MINUTES_DEFAULT))
+        except (TypeError, ValueError):
+            quiet_minutes = int(AUTO_REPLY_QUIET_MINUTES_DEFAULT)
         recent_out = conn.execute(
             "SELECT 1 FROM messages WHERE phone_number=? AND direction='out' "
-            f"AND created_at >= datetime('now','localtime','-{AUTO_REPLY_QUIET_MINUTES} minutes') LIMIT 1",
+            f"AND created_at >= datetime('now','localtime','-{quiet_minutes} minutes') LIMIT 1",
             (phone_number,),
         ).fetchone()
         if recent_out:
@@ -234,7 +462,8 @@ def _maybe_send_auto_reply(phone_number: str, complaint_id: int):
 
     try:
         import phone_link
-        phone_link.send_message(phone_number, body)
+        with _send_lock:
+            phone_link.send_message(phone_number, body)
     except Exception as e:
         print(f"[업무외 자동발송] 발송 실패, 기록도 되돌립니다 ({phone_number}): {e!r}")
         conn = get_db()
@@ -451,6 +680,52 @@ def api_delete_template(tid):
     return jsonify({"ok": True})
 
 
+# ── 감시 데몬 상태 (heartbeat) ──────────────────────────────
+# watch_daemon.py가 이 초 간격(--interval 기본 5초)보다 훨씬 오래
+# heartbeat를 안 보내면 감시가 멈춘 걸로 본다. 폴링 한두 번 놓치는 정도는
+# 화면을 읽다 느려진 것일 수 있어서 넉넉하게 잡는다.
+WATCHER_STALE_SECONDS = 60
+
+
+@app.route("/api/heartbeat", methods=["POST"])
+def api_heartbeat():
+    """watch_daemon.py가 매 폴링 주기마다 호출한다 — 자세한 이유는
+    watch_daemon.make_heartbeat() 참고. 마지막 시각과 그 주기가 정상
+    폴링이었는지를 settings에 남겨두고, 대시보드가 /api/status로 읽어간다."""
+    data = request.get_json(force=True, silent=True) or {}
+    set_setting("watcher_last_seen", now_local())
+    set_setting("watcher_last_ok", "1" if data.get("polled_ok") else "0")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    """대시보드 상단에 띄울 운영 상태 — 감시 데몬이 살아있는지, 지금이
+    업무시간인지, 자동발송이 켜져 있는지. 대시보드는 이 셋을 조합해서
+    "감시 중단됨" 배너나 "업무시간인데 자동발송 켜짐" 경고를 띄운다."""
+    last_seen = get_setting("watcher_last_seen", "")
+    seconds_ago = None
+    if last_seen:
+        try:
+            seconds_ago = int((datetime.now() - datetime.strptime(last_seen, "%Y-%m-%d %H:%M:%S")).total_seconds())
+        except ValueError:
+            seconds_ago = None
+    # heartbeat를 한 번도 받은 적 없으면(seconds_ago가 None) 감시가 도는지
+    # 알 수 없는 상태다 — "정상"으로 단정하지 않고 alive=False로 둬서
+    # 화면이 확인을 요구하게 한다.
+    alive = seconds_ago is not None and seconds_ago <= WATCHER_STALE_SECONDS
+    return jsonify({
+        "watcher": {
+            "alive": alive,
+            "polling_ok": get_setting("watcher_last_ok", "0") == "1",
+            "last_seen": last_seen,
+            "seconds_ago": seconds_ago,
+        },
+        "business_hours_now": _is_business_hours(),
+        "auto_reply_enabled": get_setting("auto_reply_enabled", "0") == "1",
+    })
+
+
 # ── 업무외 자동발송 설정 ────────────────────────────────────
 @app.route("/api/settings/auto_reply", methods=["GET"])
 def api_get_auto_reply_settings():
@@ -458,6 +733,7 @@ def api_get_auto_reply_settings():
     return jsonify({
         "enabled": get_setting("auto_reply_enabled", "0") == "1",
         "template_id": int(template_id) if template_id else None,
+        "quiet_minutes": int(get_setting("auto_reply_quiet_minutes", AUTO_REPLY_QUIET_MINUTES_DEFAULT)),
         "business_hours_now": _is_business_hours(),
     })
 
@@ -468,6 +744,14 @@ def api_update_auto_reply_settings():
     set_setting("auto_reply_enabled", "1" if data.get("enabled") else "0")
     template_id = data.get("template_id")
     set_setting("auto_reply_template_id", str(template_id) if template_id else "")
+    quiet_minutes = data.get("quiet_minutes")
+    try:
+        quiet_minutes = int(quiet_minutes)
+        if quiet_minutes < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        quiet_minutes = int(AUTO_REPLY_QUIET_MINUTES_DEFAULT)
+    set_setting("auto_reply_quiet_minutes", str(quiet_minutes))
     return jsonify({"ok": True})
 
 
@@ -491,7 +775,8 @@ def api_send():
         return jsonify({"error": f"phone_link 모듈을 불러오지 못했습니다 (윈도우 전용 기능입니다): {e}"}), 500
 
     try:
-        phone_link.send_message(phone_number, body)
+        with _send_lock:
+            phone_link.send_message(phone_number, body)
     except Exception as e:
         return jsonify({"error": f"발송 실패: {e}"}), 502
 
@@ -520,6 +805,40 @@ def api_send():
     )
     conn.commit()
     conn.close()
+    return jsonify({"ok": True})
+
+
+# ── 서버 종료 (대시보드 우측 상단 톱니바퀴 메뉴) ──────────────────
+@app.route("/api/shutdown", methods=["POST"])
+def api_shutdown():
+    """이 프로세스(app.py)뿐 아니라 별도로 떠 있는 watch_daemon.py까지 같이
+    내린다 — 서버만 죽고 감시 데몬은 계속 돌아서 어중간한 상태로 남는 걸
+    막기 위해서다. 응답을 먼저 보낸 뒤 별도 스레드에서 잠깐 기다렸다가
+    종료해야 브라우저가 "서버 종료 완료" 응답을 정상적으로 받는다.
+
+    os._exit(0)을 쓰는 이유: app.run(use_reloader=True)는 실제로는
+    부모(감시)+자식(진짜 서버) 두 프로세스 구조인데, 자식이 종료 코드
+    0으로 끝나면 부모도 그대로 따라 종료된다(재시작 트리거는 코드 3인
+    경우뿐). sys.exit()는 스레드 안에서는 그 스레드만 끝낼 뿐 프로세스
+    전체를 못 내리므로 os._exit()로 확실하게 끝낸다."""
+    def _shutdown_later():
+        time.sleep(0.5)
+        try:
+            subprocess.run(
+                [
+                    "powershell", "-NoProfile", "-Command",
+                    "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                    "Where-Object { $_.CommandLine -match 'watch_daemon\\.py' } | "
+                    "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+                ],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception as e:
+            print(f"[서버 종료] watch_daemon 종료 시도 실패: {e!r}")
+        os._exit(0)
+
+    threading.Thread(target=_shutdown_later, daemon=True).start()
     return jsonify({"ok": True})
 
 
