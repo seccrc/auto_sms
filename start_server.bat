@@ -37,15 +37,16 @@ REM though the process is running fine and just hasn't filled a buffer yet.
 powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-u app.py' -WindowStyle Hidden -RedirectStandardOutput 'logs\app_%TODAY%.log' -RedirectStandardError 'logs\app_%TODAY%.err.log'"
 
 REM Start the phone notification watcher (watch_daemon.py) the same way.
-REM --clear-notifications: after each poll saves everything successfully,
-REM clear the notification panel so old reply cards can't later be
-REM misread as a new incoming line from the contact (see phone_link.py's
-REM watch_notifications() clear_after_poll docstring for the full reasoning).
 REM --hide: minimize the "휴대폰과 연결" app window itself once the first
 REM poll has warmed it up, so it doesn't keep popping to the foreground and
 REM stealing focus while it watches in the background (it briefly restores
 REM only when actually sending a message).
-powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-u watch_daemon.py --clear-notifications --hide' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
+REM --clear-notifications is deliberately NOT enabled here: real-machine
+REM testing showed the "모든 알림 지우기" button reliably fails to invoke
+REM (COMError UIA_E_ELEMENTNOTENABLED) — it's likely only enabled while the
+REM panel is actually being hovered with the mouse, so this feature doesn't
+REM work via pure automation yet. Re-enable only after that's solved.
+powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-u watch_daemon.py --hide' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
 
 REM Both processes keep running in the background after this script exits.
 REM Check logs\app_%TODAY%.log and logs\watch_daemon_%TODAY%.log to see what

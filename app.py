@@ -58,6 +58,17 @@ _AUTH_EXEMPT_ENDPOINTS = {"login", "static"}
 # 두드릴 수 있으면 안 되니 _is_localhost_request()로 "이 서버 자신"에서
 # 온 요청인지 확인한다 — watch_daemon.py는 항상 서버와 같은 PC에서 돈다
 # (모듈 상단 설명 참고).
+#
+# ⚠ api_list_messages(GET /api/messages)는 일부러 여기 안 넣는다 —
+# api_save_message/api_heartbeat와 달리 이건 민원 전화번호·본문을 그대로
+# 돌려주는 조회 API라서, "로컬 요청이면 로그인 없이 허용"을 그대로
+# 적용하면 이 서버가 도는 PC를 로그인 없이 직접 쓸 수 있는 사람 누구나
+# URL만으로 전체 민원 내용을 볼 수 있게 되는 구멍이 생긴다. watch_daemon.py의
+# _load_recent_seen()이 이 API를 로그인 없이 부르다 401을 받는 건 알고
+# 있는 상태 — 실패해도 "재시작 직후 중복 방지 시드가 비어있는" 정도라
+# dedup_key UNIQUE 제약이 대부분 커버하므로 당장 치명적이진 않다. 제대로
+# 고치려면 watch_daemon.py가 실제 로그인 세션을 흉내내게 해야 하니 별도로
+# 다룬다.
 _LOCAL_MACHINE_ENDPOINTS = {"api_save_message", "api_heartbeat"}
 
 
