@@ -749,6 +749,19 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                         # 것이므로, _new_lines_since()의 "카드가 리셋되면
                         # 내용 기준으로 되돌아가는" 처리만으로 이미 충분히
                         # 안전하게 새 줄을 가려낼 수 있다.
+                        #
+                        # 일부 UWP 앱은 최소화(cloaked)된 채로는 컨트롤
+                        # invoke를 제대로 처리하지 못해서, 이 클릭 자체가
+                        # 창을 화면에 강제로 복원시킬 수 있다(사용 중
+                        # "지우기를 누를 때마다 포커스가 앱으로 넘어간다"는
+                        # 증상과 정확히 들어맞아 유력한 원인으로 보고 여기서
+                        # 방어한다 — 실제 --dump 등으로 이 인과관계 자체를
+                        # 못박아 확인한 건 아니다). hide_after_start로 숨겨서
+                        # 감시 중이었다면(hidden_already) 원래 상태로 즉시
+                        # 다시 최소화한다.
+                        if hide_after_start and hidden_already and not _is_minimized(win):
+                            minimize_window(win)
+                            win = _reconnect_after_failure(win, keep_hidden=True)
                 except Exception as e:
                     # 알림 삭제는 "나" 오귀속 위험을 줄이는 부가 기능이지
                     # 감시 자체의 핵심이 아니므로, 여기서 실패해도 이번
