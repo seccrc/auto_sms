@@ -762,8 +762,15 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
             if clear_after_poll and all_delivered and any_delivered:
                 try:
                     clear_btn = win.child_window(**_CLEAR_ALL_NOTIFICATIONS_CRITERIA)
-                    if clear_btn.exists(timeout=1):
+                    if not clear_btn.exists(timeout=1):
+                        # 예외가 아니라 "그 순간 버튼이 트리에 없었다"는
+                        # 정상적인 실패 경로다 — 로그에 안 남기면 지우기가
+                        # 조용히 아무 일도 안 했는지, 아예 시도를 안 했는지
+                        # 구분할 수 없어서 원인 분석이 어려웠다(실제로 겪음).
+                        print("[알림 감시] 알림 지우기 버튼을 찾지 못해 이번엔 건너뜁니다(다음 폴링에서 다시 시도).")
+                    else:
                         clear_btn.invoke()
+                        print("[알림 감시] 알림 지우기를 눌렀습니다.")
                         # 여기서 seen_lines_by_sender를 미리 비우면 안 된다 —
                         # 이 클릭이 실제로 화면에 반영되기 전에 다음 폴링이
                         # 돌면, 카드에 아직 그대로 남아있는 옛 줄을 "처음
