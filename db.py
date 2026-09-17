@@ -10,6 +10,14 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # watch_daemon.py(수신 감시, 별도 프로세스)와 팀원 여러 명이 동시에 쓰는
+    # 대시보드 요청이 같은 DB 파일에 거의 동시에 쓸 수 있다. 기본 모드는
+    # 커넥션 하나만 쓸 수 있고 다른 쪽이 쓰려고 하면 기다려주지도 않고
+    # (busy_timeout 기본값 0) 바로 "database is locked" 에러가 나므로, WAL
+    # 모드(쓰기 하나+읽기 여럿을 동시에 허용)와 busy_timeout(잠깐 겹쳐도
+    # 몇 초 기다렸다가 재시도)을 켜서 그런 경합을 견디게 한다.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -42,6 +50,14 @@ def init_db():
             key   TEXT PRIMARY KEY,               -- 예: auto_reply_enabled, auto_reply_template_id
             value TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin      INTEGER NOT NULL DEFAULT 0,
+            created_at    TEXT DEFAULT (datetime('now', 'localtime'))
+        );
     """)
     _migrate_message_columns(conn)
     conn.commit()
@@ -50,7 +66,8 @@ def init_db():
 
 # 민원 문자 목록에서 직원이 직접 채워 넣는 칸들 — 워처/자동화가 채우는 값이
 # 아니라 사람이 보고 판단해서 입력하는 값이라 전부 빈 문자열 기본값으로 둔다.
-# status(처리상태)는 미처리/처리중/처리완료 중 고르는 드롭다운 전용 컬럼이고,
+# status(처리상태)는 정해진 상태 값(답변완료(조치예정)/중장기검토/처리기한 미도래/
+# 처리불가/처리완료/타기관 이송) 중 고르는 드롭다운 전용 컬럼이고,
 # manual_input(입력)/receipt_no(접수번호)는 자유 텍스트다.
 # thread_id는 같은 민원인이 시간차를 두고 다시 보내서 스레드가 갈라진 걸
 # 체크박스로 골라 수동으로 합칠 때 쓴다 — 기본은 NULL이고(스레드 묶음은
