@@ -739,7 +739,16 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                     clear_btn = win.child_window(**_CLEAR_ALL_NOTIFICATIONS_CRITERIA)
                     if clear_btn.exists(timeout=1):
                         clear_btn.invoke()
-                        seen_lines_by_sender.clear()
+                        # 여기서 seen_lines_by_sender를 미리 비우면 안 된다 —
+                        # 이 클릭이 실제로 화면에 반영되기 전에 다음 폴링이
+                        # 돌면, 카드에 아직 그대로 남아있는 옛 줄을 "처음
+                        # 보는 새 줄"로 착각해 똑같은 문자를 다시 콜백에
+                        # 넘기는 사고로 이어진다(실제로 겪음 — 중복 저장 +
+                        # 자동발송 중복 발송까지 이어짐). 지우기가 실제로
+                        # 성공했다면 다음 폴링 때 카드 자체가 비어있을
+                        # 것이므로, _new_lines_since()의 "카드가 리셋되면
+                        # 내용 기준으로 되돌아가는" 처리만으로 이미 충분히
+                        # 안전하게 새 줄을 가려낼 수 있다.
                 except Exception as e:
                     # 알림 삭제는 "나" 오귀속 위험을 줄이는 부가 기능이지
                     # 감시 자체의 핵심이 아니므로, 여기서 실패해도 이번
