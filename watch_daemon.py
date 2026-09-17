@@ -84,7 +84,7 @@ def make_reporter(server: str, merge_window: float = 0.0):
     lock = threading.Lock()
 
     def send(phone_number, contact_name, body, msg_time):
-        """서버에 저장 요청을 보낸다. 반환값(True/False)은 phone_link의
+        """서버에 저장 요청을 보낸다. 반환값은 phone_link의
         watch_notifications()/watch_new_messages()가 "이 줄을 실제로
         서버까지 전달했는지" 판단하는 데 쓰인다 — False를 돌려주면 그
         줄은 "본 것"으로 기록되지 않고 다음 폴링에서 다시 시도된다.
@@ -94,7 +94,16 @@ def make_reporter(server: str, merge_window: float = 0.0):
         재시작) 네트워크가 순간적으로 끊겨 이 요청이 실패해도 phone_link
         쪽에서는 이미 "본 줄"로 기억해버려서, 그 문자는 다시 시도되지 않고
         조용히 영영 사라지는 문제가 있었다(실제로 있었던 문제 — 콘솔에
-        경고 한 줄만 남고 아무도 못 봄)."""
+        경고 한 줄만 남고 아무도 못 봄).
+
+        True/"duplicate"/False 세 가지를 구분해서 돌려준다 — 성공(재시도
+        불필요)인지 아닌지는 True/"duplicate" 둘 다 같지만, "진짜 새로
+        DB에 저장됐는지"는 다르다. watch_notifications()의
+        clear_after_poll이 정확히 이 둘을 구분해야 한다 — 처음엔 이
+        구분 없이 inserted=False(중복/자기 답신으로 서버가 건너뛴 것)도
+        그냥 True로 돌려줬는데, 그러면 실제로 새로 저장된 게 하나도
+        없어도 "성공적으로 처리했다"는 이유만으로 알림 지우기를 계속
+        시도하는 문제로 이어졌다(실제로 겪음)."""
         try:
             r = requests.post(
                 f"{server}/api/messages",
@@ -112,9 +121,11 @@ def make_reporter(server: str, merge_window: float = 0.0):
             if r.json().get("inserted"):
                 preview = body[:30].replace("\n", " / ")
                 print(f"[저장] {phone_number}: {preview}")
+                return True
             # inserted=False는 서버가 중복/자기 답신 등으로 판단해 일부러
-            # 건너뛴 것 — 요청 자체는 정상 처리된 것이므로 성공으로 본다.
-            return True
+            # 건너뛴 것 — 요청 자체는 정상 처리됐으니 재시도는 필요 없지만
+            # (False가 아님), "새로 저장된 것"도 아니므로 True와는 구분한다.
+            return "duplicate"
         except Exception as e:
             print(f"[경고] 서버로 전송 실패해 다음 폴링에서 재시도합니다 ({phone_number}): {e!r}")
             return False

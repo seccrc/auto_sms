@@ -679,11 +679,16 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
     서버에 보내는 용도(watch_daemon.py의 heartbeat)로 쓴다. 여기서 나는
     예외는 감시 자체를 멈추지 않도록 삼킨다.
 
-    clear_after_poll=True면, 이번 폴링에서 새로 발견한 줄이 하나라도 있고
-    그걸 전부(어느 발신자든) 콜백에 성공적으로 넘겼을 때만 "모든 알림
-    지우기" 버튼을 눌러 알림 패널을 비운다(새로 저장할 게 없는 폴링에선
-    누르지 않는다 — 매번 눌러봐야 지울 게 없을뿐더러, 불필요하게 자주
-    누를수록 창이 예기치 않게 복원되는 부작용도 잦아진다).
+    clear_after_poll=True면, 이번 폴링에서 콜백에 넘긴 줄 중 하나 이상이
+    "진짜 새로 DB에 저장됐다"고 콜백이 확인해줬고(콜백이 정확히 True를
+    돌려준 경우만 — watch_daemon.py의 send() 참고) 그걸 전부(어느
+    발신자든) 성공적으로 넘겼을 때만 "모든 알림 지우기" 버튼을 눌러 알림
+    패널을 비운다. 콜백이 False가 아닌 다른 값(예: "duplicate" — 서버가
+    중복/자기 답신으로 판단해 저장은 안 했지만 처리 자체는 성공한 경우)을
+    돌려준 줄은 "처리는 됐지만 새로 저장된 건 아님"으로 보고 지우기
+    조건에 넣지 않는다 — 안 그러면 실제로 새로 저장된 게 하나도 없어도
+    "처리엔 성공했다"는 이유만으로 매 폴링 계속 지우기를 시도하는 문제로
+    이어진다(실제로 겪음).
     _parse_notification_item()의 "나" 발신자 복구 로직은
     카드가 오래 누적될수록(우리가 보낸 답장이 카드 중간에 끼어있을 여지가
     커질수록) 그 답장 줄까지 통째로 상대방이 보낸 새 줄로 잘못 되살릴
@@ -733,11 +738,22 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                 # 유지한다.
                 delivered = list(prev_lines)
                 for line in _new_lines_since(prev_lines, body_lines):
-                    if callback(phone, contact_name, line, msg_time) is False:
+                    result = callback(phone, contact_name, line, msg_time)
+                    if result is False:
                         all_delivered = False
                         break
                     delivered.append(line)
-                    any_delivered = True
+                    # result is True: 콜백이(watch_daemon.py의 send()라면)
+                    # 이 줄을 "진짜 새로 DB에 저장했다"는 뜻이다. 서버가
+                    # 중복/자기 답신으로 판단해 저장은 안 했지만 처리 자체는
+                    # 성공한 경우엔 "duplicate" 같은 다른 값을 돌려주는데,
+                    # 그런 경우까지 any_delivered로 치면 새로 저장한 게
+                    # 하나도 없는데도 지우기를 계속 시도하는 문제로
+                    # 이어진다(실제로 겪음). 기존 호출부(테스트용 CLI 등)가
+                    # 반환값 없이(None) 넘어가는 경우는 "새로 저장됐는지
+                    # 알 수 없다"고 보고 보수적으로 any_delivered로 안 친다.
+                    if result is True:
+                        any_delivered = True
                 seen_lines_by_sender[phone] = delivered
             # any_delivered가 아니면(이번 폴링에서 새로 저장된 게 하나도
             # 없으면) 지우기 버튼을 누르지 않는다 — 어차피 지울 새 내용이
