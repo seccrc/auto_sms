@@ -595,8 +595,15 @@ def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int 
                 history = seen_bodies_by_phone.setdefault(phone, [])
                 if history and history[-1] == preview:
                     continue  # 마지막으로 본 미리보기와 같음 — 아직 그대로인 걸로 봄
-                history.append(preview)
-                callback(phone, contact_name, preview, msg_time)
+                # callback이 False를 명시적으로 돌려주면(서버 전송 실패 등)
+                # "본 것"으로 기록하지 않는다 — 여기서 먼저 history에 추가해두면,
+                # 서버가 그 메시지를 실제로 저장하지 못했어도 다음 폴링 때
+                # "이미 본 미리보기"로 취급돼 두 번 다시 시도되지 않고 그대로
+                # 유실된다(실제로 있었던 문제). callback이 아무것도 안
+                # 돌려주는 기존 호출부(테스트용 CLI 등)는 None이 False가
+                # 아니므로 그대로 "성공"으로 취급해 기존 동작을 유지한다.
+                if callback(phone, contact_name, preview, msg_time) is not False:
+                    history.append(preview)
             polled_ok = True
         except Exception as e:
             print(f"[감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")
@@ -689,9 +696,21 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                 phone, contact_name, body_lines, msg_time = parsed
                 body_lines = [line for line in body_lines if line]
                 prev_lines = seen_lines_by_sender.get(phone, [])
+                # callback이 False를 돌려주면(서버 전송 실패) 그 줄부터는
+                # "본 것"으로 기록하지 않고 멈춘다 — 여기서 무조건
+                # seen_lines_by_sender를 body_lines로 갱신해버리면, 서버가
+                # 실제로 저장하지 못한 문자도 다음 폴링부터 "이미 처리한
+                # 줄"로 취급돼 재시도 없이 그대로 유실된다(실제로 있었던
+                # 문제 — 예: git pull로 서버가 잠깐 재시작되는 순간과 겹치는
+                # 경우). callback이 아무것도 안 돌려주는 기존 호출부는 None이
+                # False가 아니므로 그대로 "성공"으로 취급해 기존 동작을
+                # 유지한다.
+                delivered = list(prev_lines)
                 for line in _new_lines_since(prev_lines, body_lines):
-                    callback(phone, contact_name, line, msg_time)
-                seen_lines_by_sender[phone] = body_lines
+                    if callback(phone, contact_name, line, msg_time) is False:
+                        break
+                    delivered.append(line)
+                seen_lines_by_sender[phone] = delivered
             polled_ok = True
         except Exception as e:
             print(f"[알림 감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")

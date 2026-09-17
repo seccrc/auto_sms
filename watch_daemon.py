@@ -84,6 +84,17 @@ def make_reporter(server: str, merge_window: float = 0.0):
     lock = threading.Lock()
 
     def send(phone_number, contact_name, body, msg_time):
+        """서버에 저장 요청을 보낸다. 반환값(True/False)은 phone_link의
+        watch_notifications()/watch_new_messages()가 "이 줄을 실제로
+        서버까지 전달했는지" 판단하는 데 쓰인다 — False를 돌려주면 그
+        줄은 "본 것"으로 기록되지 않고 다음 폴링에서 다시 시도된다.
+
+        예전에는 성공 여부와 무관하게 항상 (반환값 없이) 넘어갔는데, 그러면
+        서버가 잠깐 재시작 중이거나(예: git pull로 인한 use_reloader
+        재시작) 네트워크가 순간적으로 끊겨 이 요청이 실패해도 phone_link
+        쪽에서는 이미 "본 줄"로 기억해버려서, 그 문자는 다시 시도되지 않고
+        조용히 영영 사라지는 문제가 있었다(실제로 있었던 문제 — 콘솔에
+        경고 한 줄만 남고 아무도 못 봄)."""
         try:
             r = requests.post(
                 f"{server}/api/messages",
@@ -95,11 +106,18 @@ def make_reporter(server: str, merge_window: float = 0.0):
                 },
                 timeout=10,
             )
-            if r.ok and r.json().get("inserted"):
+            if not r.ok:
+                print(f"[경고] 서버가 오류로 응답({r.status_code})해 다음 폴링에서 재시도합니다 ({phone_number})")
+                return False
+            if r.json().get("inserted"):
                 preview = body[:30].replace("\n", " / ")
                 print(f"[저장] {phone_number}: {preview}")
+            # inserted=False는 서버가 중복/자기 답신 등으로 판단해 일부러
+            # 건너뛴 것 — 요청 자체는 정상 처리된 것이므로 성공으로 본다.
+            return True
         except Exception as e:
-            print(f"[경고] 서버로 전송 실패 ({phone_number}): {e!r}")
+            print(f"[경고] 서버로 전송 실패해 다음 폴링에서 재시도합니다 ({phone_number}): {e!r}")
+            return False
 
     def flush(phone_number):
         with lock:
@@ -113,8 +131,7 @@ def make_reporter(server: str, merge_window: float = 0.0):
             # 보낸다. 0초 타이머로 처리하면 report()가 연달아 두 번 불릴 때
             # 두 번째 호출이 첫 번째 타이머를 취소해버려(아직 안 실행됐으므로)
             # 오히려 합쳐지는 경쟁 상태가 생겨서, 이 경로는 별도로 뺐다.
-            send(phone_number, contact_name, body, msg_time)
-            return
+            return send(phone_number, contact_name, body, msg_time)
         with lock:
             entry = pending.get(phone_number)
             if entry is None:
