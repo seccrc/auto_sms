@@ -519,6 +519,7 @@ def api_save_message():
     ).fetchone()
     if self_echo:
         conn.close()
+        print(f"[self-echo] {phone_number}에게 보낸 것과 같은 문구라 수신 저장을 건너뜁니다: {body[:30]!r}")
         return jsonify({"ok": True, "inserted": False, "skipped_self_echo": True})
 
     dedup_key = make_dedup_key(phone_number, body, msg_time)
