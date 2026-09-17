@@ -493,12 +493,17 @@ def api_save_message():
     # 오히려 진짜 수신 문자를 놓치는 사고로 이어진 적도 있음), 여기서는
     # 같은 번호로 우리가 최근에 정확히 같은 문구를 보낸 적이 있는지를
     # 서버 쪽 실제 발신 기록으로 한 번 더 확인한다 — 있으면 우리 답신이
-    # 알림에 다시 잡힌 것으로 보고 수신 문자로 저장하지 않는다. 기간을
-    # 하루로 넉넉히 잡은 이유는 알림 카드가 하루 넘게 안 지워지고 화면에
-    # 그대로 남아있는 경우도 실제로 있기 때문이다.
+    # 알림에 다시 잡힌 것으로 보고 수신 문자로 저장하지 않는다.
+    #
+    # 이 오탐은 보통 답신을 보낸 직후 다음 폴링 한두 번 안에 일어나므로,
+    # 그 시점만 가려낼 만큼만 창을 짧게 잡는다 — 예전엔 하루로 넉넉히
+    # 잡았었는데, 그러면 민원인이 우리가 최근에 보낸 것과 우연히 똑같은
+    # 짧은 문구(예: "네", "확인했습니다")를 하루 안에 보내기만 해도 진짜
+    # 수신 문자가 조용히 버려지는 부작용이 있었다. 5분이면 이 오탐이
+    # 실제로 일어나는 시점은 충분히 덮으면서, 그런 부작용은 크게 줄어든다.
     self_echo = conn.execute(
         "SELECT 1 FROM messages WHERE phone_number=? AND direction='out' AND body=? "
-        "AND created_at >= datetime('now','localtime','-1 day') LIMIT 1",
+        "AND created_at >= datetime('now','localtime','-5 minutes') LIMIT 1",
         (phone_number, body),
     ).fetchone()
     if self_echo:
