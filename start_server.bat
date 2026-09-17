@@ -41,12 +41,13 @@ REM --hide: minimize the "휴대폰과 연결" app window itself once the first
 REM poll has warmed it up, so it doesn't keep popping to the foreground and
 REM stealing focus while it watches in the background (it briefly restores
 REM only when actually sending a message).
-REM --clear-notifications is deliberately NOT enabled here: real-machine
-REM testing showed the "모든 알림 지우기" button reliably fails to invoke
-REM (COMError UIA_E_ELEMENTNOTENABLED) — it's likely only enabled while the
-REM panel is actually being hovered with the mouse, so this feature doesn't
-REM work via pure automation yet. Re-enable only after that's solved.
-powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-u watch_daemon.py --hide' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
+REM --clear-notifications: re-enabled temporarily for diagnostic log
+REM gathering — real-machine testing showed the "모든 알림 지우기" button
+REM reliably fails to invoke (COMError UIA_E_ELEMENTNOTENABLED), so this is
+REM not expected to actually clear anything yet. It's back on only so the
+REM watch_daemon log captures a fresh, clean repro of the focus-stealing
+REM symptom to pin down its real cause.
+powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-u watch_daemon.py --hide --clear-notifications' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
 
 REM Both processes keep running in the background after this script exits.
 REM Check logs\app_%TODAY%.log and logs\watch_daemon_%TODAY%.log to see what
