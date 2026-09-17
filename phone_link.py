@@ -132,6 +132,12 @@ _NOTIF_TIME_AUTO_ID = "HoverDateReceivedTextBlock"
 _NOTIF_SENDER_AUTO_ID = "CompactModeTitleTextBlock"
 _NOTIF_SMS_APP_NAME = "메시지"
 
+# 알림 패널 상단의 "모든 알림 지우기" 버튼 — 실제 --dump(2026-09)로 확인.
+# 이 버튼은 auto_id가 아예 없어서(identifiers 목록에 auto_id 후보가 안 뜸),
+# 다른 셀렉터들과 달리 어쩔 수 없이 title로 찾는다 — 앱 언어가 바뀌면
+# 이 title도 바뀔 수 있다는 뜻이니, 안 잡히면 제일 먼저 의심할 곳.
+_CLEAR_ALL_NOTIFICATIONS_CRITERIA = dict(title="모든 알림 지우기", control_type="Button")
+
 # 발신자/시각 필드에 마이크로소프트 UI가 자동으로 끼워넣는 양방향 텍스트
 # 제어 문자(U+2066~U+2069 LTR/RTL/FIRST STRONG ISOLATE, POP DIRECTIONAL
 # ISOLATE / U+200E,U+200F LTR·RTL MARK) — 화면엔 안 보이지만 window_text()로
@@ -619,7 +625,7 @@ def watch_new_messages(callback, poll_interval: int = 5, max_conversations: int 
 
 def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                          hide_after_start: bool = False, seen_lines_by_sender: dict = None,
-                         on_poll=None):
+                         on_poll=None, clear_after_poll: bool = False):
     """홈 화면 "알림" 패널(NotificationsListScrollHost)을 주기적으로 훑어서
     새 문자 알림을 발견하면 (그 알림 카드에 새로 쌓인 줄마다 한 번씩)
     callback(phone_number, contact_name, body, msg_time)을 호출한다.
@@ -671,7 +677,22 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
     on_poll(polled_ok)를 넘기면 매 폴링 주기가 끝날 때마다 호출한다 —
     새 문자가 있든 없든 무조건 불리므로, "감시가 살아있다"는 신호를
     서버에 보내는 용도(watch_daemon.py의 heartbeat)로 쓴다. 여기서 나는
-    예외는 감시 자체를 멈추지 않도록 삼킨다."""
+    예외는 감시 자체를 멈추지 않도록 삼킨다.
+
+    clear_after_poll=True면, 이번 폴링에서 발견한 새 줄을 전부(어느 발신자든)
+    콜백에 성공적으로 넘기고 난 뒤 "모든 알림 지우기" 버튼을 눌러 알림
+    패널을 비운다 — _parse_notification_item()의 "나" 발신자 복구 로직은
+    카드가 오래 누적될수록(우리가 보낸 답장이 카드 중간에 끼어있을 여지가
+    커질수록) 그 답장 줄까지 통째로 상대방이 보낸 새 줄로 잘못 되살릴
+    위험이 커지는데, 매 폴링마다 카드를 비우면 그 누적 범위가 "이번 폴링
+    간격 이내"로 좁아져서 위험이 구조적으로 줄어든다(완전히 없어지진
+    않는다 — 같은 폴링 주기 안에서 답장을 보내고 그 직후 상대가 바로
+    답장하는 경우는 여전히 카드 하나에 같이 걸릴 수 있다).
+    콜백이 False를 돌려줘서(서버 전송 실패) 이번 폴링에서 못 넘긴 줄이
+    하나라도 있으면 지우지 않는다 — 지워버리면 재시도할 원본이 통째로
+    사라져서 서버 다운 시 메시지가 유실되는, 앞서 고쳤던 문제가 도로
+    생긴다. 기본값은 False다(기존 호출부의 동작을 그대로 유지하기 위함) —
+    watch_daemon.py는 --clear-notifications 옵션으로 켤 수 있다."""
     win = _connect_main_window()
     _restore_if_minimized(win)  # 처음부터 최소화된 채로 시작하면 목록이 안 읽힘
     if seen_lines_by_sender is None:
@@ -689,6 +710,7 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
             # 먼저 확인해서, 없으면 조용히 빈 목록으로 취급하고 다음 주기로
             # 넘어간다(에러로 취급해 재연결까지 할 필요 없음).
             items = notif_list.descendants(control_type="ListItem") if notif_list.exists(timeout=1) else []
+            all_delivered = True
             for item in items[:max_items]:
                 parsed = _parse_notification_item(item)
                 if not parsed:
@@ -708,9 +730,21 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                 delivered = list(prev_lines)
                 for line in _new_lines_since(prev_lines, body_lines):
                     if callback(phone, contact_name, line, msg_time) is False:
+                        all_delivered = False
                         break
                     delivered.append(line)
                 seen_lines_by_sender[phone] = delivered
+            if clear_after_poll and all_delivered:
+                try:
+                    clear_btn = win.child_window(**_CLEAR_ALL_NOTIFICATIONS_CRITERIA)
+                    if clear_btn.exists(timeout=1):
+                        clear_btn.invoke()
+                        seen_lines_by_sender.clear()
+                except Exception as e:
+                    # 알림 삭제는 "나" 오귀속 위험을 줄이는 부가 기능이지
+                    # 감시 자체의 핵심이 아니므로, 여기서 실패해도 이번
+                    # 폴링을 실패로 치지 않고 다음 폴링에서 다시 시도한다.
+                    print(f"[알림 감시] 알림 지우기에 실패했습니다(다음 폴링에서 다시 시도): {e!r}")
             polled_ok = True
         except Exception as e:
             print(f"[알림 감시] 목록을 읽는 중 오류가 발생해 이번 주기는 건너뜁니다: {e!r}")

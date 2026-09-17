@@ -256,6 +256,16 @@ if __name__ == "__main__":
              "(처음부터 최소화된 채로 시작하면 목록이 계속 안 읽히는 걸 확인해서, "
              "시작 시점엔 창을 보이게 뒀다가 한 번 읽고 난 뒤에 숨김)"
     )
+    parser.add_argument(
+        "--clear-notifications", action="store_true",
+        help="--source notifications일 때, 이번 폴링에서 새 줄을 전부 서버에 "
+             "저장하고 난 뒤 '모든 알림 지우기'를 눌러 알림 패널을 비웁니다 "
+             "(우리가 보낸 답장이 카드에 오래 남아있다가 나중에 상대방 새 줄로 "
+             "잘못 되살아나는 '나' 오귀속 위험을 줄임 — phone_link.py의 "
+             "watch_notifications() clear_after_poll 설명 참고). 서버 저장이 "
+             "실패한 줄이 있으면 그 폴링은 지우지 않고 다음 폴링에서 다시 "
+             "시도합니다."
+    )
     args = parser.parse_args()
 
     reporter = make_reporter(args.server, merge_window=args.merge_window)
@@ -277,6 +287,7 @@ if __name__ == "__main__":
                 phone_link.watch_notifications(
                     reporter, poll_interval=args.interval, hide_after_start=args.hide,
                     seen_lines_by_sender=initial_seen, on_poll=heartbeat,
+                    clear_after_poll=args.clear_notifications,
                 )
             else:
                 phone_link.watch_new_messages(
