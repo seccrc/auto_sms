@@ -33,7 +33,11 @@ REM stdout and stderr go to separate log files named for today's date.
 powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'app.py' -WindowStyle Hidden -RedirectStandardOutput 'logs\app_%TODAY%.log' -RedirectStandardError 'logs\app_%TODAY%.err.log'"
 
 REM Start the phone notification watcher (watch_daemon.py) the same way.
-powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'watch_daemon.py' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
+REM --clear-notifications: after each poll saves everything successfully,
+REM clear the notification panel so old reply cards can't later be
+REM misread as a new incoming line from the contact (see phone_link.py's
+REM watch_notifications() clear_after_poll docstring for the full reasoning).
+powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'watch_daemon.py --clear-notifications' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
 
 REM Both processes keep running in the background after this script exits.
 REM Check logs\app_%TODAY%.log and logs\watch_daemon_%TODAY%.log to see what
