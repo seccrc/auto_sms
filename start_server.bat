@@ -30,14 +30,18 @@ REM "start /b" shares this window's console, which then keeps this window
 REM open even after "exit" below; "start" without /b opens a new console
 REM for the child but silently drops stdout/stderr redirection for it.)
 REM stdout and stderr go to separate log files named for today's date.
-powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'app.py' -WindowStyle Hidden -RedirectStandardOutput 'logs\app_%TODAY%.log' -RedirectStandardError 'logs\app_%TODAY%.err.log'"
+REM "-u" disables Python's stdout buffering: when stdout is redirected to a
+REM file (not a real console), Python switches from line-buffered to
+REM block-buffered output, so log files can sit empty for a long time even
+REM though the process is running fine and just hasn't filled a buffer yet.
+powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-u app.py' -WindowStyle Hidden -RedirectStandardOutput 'logs\app_%TODAY%.log' -RedirectStandardError 'logs\app_%TODAY%.err.log'"
 
 REM Start the phone notification watcher (watch_daemon.py) the same way.
 REM --clear-notifications: after each poll saves everything successfully,
 REM clear the notification panel so old reply cards can't later be
 REM misread as a new incoming line from the contact (see phone_link.py's
 REM watch_notifications() clear_after_poll docstring for the full reasoning).
-powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList 'watch_daemon.py --clear-notifications' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
+powershell -NoProfile -Command "Start-Process -FilePath 'python' -ArgumentList '-u watch_daemon.py --clear-notifications' -WindowStyle Hidden -RedirectStandardOutput 'logs\watch_daemon_%TODAY%.log' -RedirectStandardError 'logs\watch_daemon_%TODAY%.err.log'"
 
 REM Both processes keep running in the background after this script exits.
 REM Check logs\app_%TODAY%.log and logs\watch_daemon_%TODAY%.log to see what
