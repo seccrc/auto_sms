@@ -679,9 +679,12 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
     서버에 보내는 용도(watch_daemon.py의 heartbeat)로 쓴다. 여기서 나는
     예외는 감시 자체를 멈추지 않도록 삼킨다.
 
-    clear_after_poll=True면, 이번 폴링에서 발견한 새 줄을 전부(어느 발신자든)
-    콜백에 성공적으로 넘기고 난 뒤 "모든 알림 지우기" 버튼을 눌러 알림
-    패널을 비운다 — _parse_notification_item()의 "나" 발신자 복구 로직은
+    clear_after_poll=True면, 이번 폴링에서 새로 발견한 줄이 하나라도 있고
+    그걸 전부(어느 발신자든) 콜백에 성공적으로 넘겼을 때만 "모든 알림
+    지우기" 버튼을 눌러 알림 패널을 비운다(새로 저장할 게 없는 폴링에선
+    누르지 않는다 — 매번 눌러봐야 지울 게 없을뿐더러, 불필요하게 자주
+    누를수록 창이 예기치 않게 복원되는 부작용도 잦아진다).
+    _parse_notification_item()의 "나" 발신자 복구 로직은
     카드가 오래 누적될수록(우리가 보낸 답장이 카드 중간에 끼어있을 여지가
     커질수록) 그 답장 줄까지 통째로 상대방이 보낸 새 줄로 잘못 되살릴
     위험이 커지는데, 매 폴링마다 카드를 비우면 그 누적 범위가 "이번 폴링
@@ -711,6 +714,7 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
             # 넘어간다(에러로 취급해 재연결까지 할 필요 없음).
             items = notif_list.descendants(control_type="ListItem") if notif_list.exists(timeout=1) else []
             all_delivered = True
+            any_delivered = False
             for item in items[:max_items]:
                 parsed = _parse_notification_item(item)
                 if not parsed:
@@ -733,8 +737,13 @@ def watch_notifications(callback, poll_interval: int = 5, max_items: int = 30,
                         all_delivered = False
                         break
                     delivered.append(line)
+                    any_delivered = True
                 seen_lines_by_sender[phone] = delivered
-            if clear_after_poll and all_delivered:
+            # any_delivered가 아니면(이번 폴링에서 새로 저장된 게 하나도
+            # 없으면) 지우기 버튼을 누르지 않는다 — 어차피 지울 새 내용이
+            # 없을뿐더러, 매 폴링(몇 초)마다 무의미하게 계속 눌러대면 그만큼
+            # 창이 예기치 않게 복원되는 부작용(위 주석 참고)도 잦아진다.
+            if clear_after_poll and all_delivered and any_delivered:
                 try:
                     clear_btn = win.child_window(**_CLEAR_ALL_NOTIFICATIONS_CRITERIA)
                     if clear_btn.exists(timeout=1):
