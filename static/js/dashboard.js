@@ -98,6 +98,36 @@ function promptText(title, message, placeholder = '') {
     });
 }
 
+// promptText()와 같은 구조지만 datetime-local 입력을 받는다. 취소(오버레이
+// 바깥 클릭/Esc/취소 버튼)는 null을, 값을 안 고르고 "확인"을 누르면 빈
+// 문자열을 돌려준다 — 호출부에서 null만 "그만두기"로 구분해서 처리한다.
+function promptDateTime(title, message, currentValue = '') {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal-box">
+                <h3>${esc(title)}</h3>
+                <p>${esc(message)}</p>
+                <input type="datetime-local" id="promptDateTimeInput" value="${esc(currentValue)}">
+                <div class="modal-actions">
+                    <button class="btn-ghost" data-act="cancel">취소</button>
+                    <button class="btn-primary" data-act="ok">확인</button>
+                </div>
+            </div>`;
+        const close = (result) => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(result); };
+        const onKey = (e) => { if (e.key === 'Escape') close(null); };
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) { close(null); return; }
+            const act = e.target.closest('[data-act]');
+            if (act) close(act.dataset.act === 'ok' ? overlay.querySelector('#promptDateTimeInput').value : null);
+        });
+        document.addEventListener('keydown', onKey);
+        document.body.appendChild(overlay);
+        overlay.querySelector('#promptDateTimeInput').focus();
+    });
+}
+
 // lastThreads는 15초 주기 폴링에만 갱신되므로, 저장 직후 사용자가 수정
 // 모드를 빠져나가 renderThreads()가 다시 그리면 방금 저장한 값이 아니라
 // 이 캐시에 남은 옛 값으로 되돌아가 보이는 문제가 있었다. 저장에 성공하면
@@ -204,6 +234,13 @@ async function deleteTemplate(id) {
 }
 
 // ── 업무외 자동발송 ──
+// 해제 일시를 묻는 팝업이 떠 있는 동안, 10초마다 도는 loadAutoReplySettings()
+// 폴링이 서버에 아직 저장 전인 "꺼짐" 상태를 받아와 토글을 도로 꺼버릴 수
+// 있다 — 그러면 사용자가 팝업에서 일시를 고르고 확인을 눌러도 실제로는
+// 꺼진 채로 저장돼버린다. 팝업이 열려 있는 동안은 이 플래그로 그 덮어쓰기를
+// 막는다.
+let autoReplyPopupOpen = false;
+
 function renderAutoReplyTemplateOptions() {
     const sel = document.getElementById('autoReplyTemplateSelect');
     const current = sel.value;
@@ -216,7 +253,7 @@ async function loadAutoReplySettings() {
     try {
         const r = await fetch('/api/settings/auto_reply');
         const d = await r.json();
-        document.getElementById('autoReplyEnabled').checked = !!d.enabled;
+        if (!autoReplyPopupOpen) document.getElementById('autoReplyEnabled').checked = !!d.enabled;
         renderAutoReplyTemplateOptions();
         if (d.template_id) document.getElementById('autoReplyTemplateSelect').value = d.template_id;
         // 10초마다 폴링되는데, 지금 이 칸에 숫자를 입력하는 중이면 값을
@@ -247,6 +284,40 @@ async function loadAutoReplySettings() {
             }
         }
     } catch (e) {}
+}
+
+// 토글을 켤 때 해제 일시를 바로 물어본다 — 켜놓고 깜빡 잊는 걸 막는 게
+// 목적이라, 나중에 따로 손 안 대도 되게 켜는 순간 바로 띄운다. 취소하면
+// (오버레이 바깥 클릭/Esc/취소) 토글도 다시 꺼진 상태로 되돌리고 저장하지
+// 않는다 — "일단 켜두고 나중에 정할게"가 안 되게 해서, 해제 일시를 안
+// 정하고 싶으면 팝업에서 빈 채로 "확인"을 누르게 강제한다(무기한도 명시적
+// 선택이 되도록).
+async function onAutoReplyToggleChange() {
+    const checkbox = document.getElementById('autoReplyEnabled');
+    if (!checkbox.checked) {
+        saveAutoReplySettings();
+        return;
+    }
+    const templateId = document.getElementById('autoReplyTemplateSelect').value;
+    if (!templateId) {
+        showToast('자동발송할 상용문구를 먼저 선택하세요', 'bad');
+        checkbox.checked = false;
+        return;
+    }
+    const untilEl = document.getElementById('autoReplyUntil');
+    autoReplyPopupOpen = true;
+    const picked = await promptDateTime(
+        '자동발송 해제 일시',
+        '지정한 시각이 지나면 자동발송이 자동으로 꺼집니다. 비워두고 확인하면 직접 끌 때까지 계속 유지됩니다.',
+        untilEl.value
+    );
+    autoReplyPopupOpen = false;
+    if (picked === null) {
+        checkbox.checked = false;
+        return;
+    }
+    untilEl.value = picked;
+    saveAutoReplySettings();
 }
 
 async function saveAutoReplySettings() {
