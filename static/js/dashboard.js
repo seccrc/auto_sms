@@ -240,6 +240,10 @@ async function deleteTemplate(id) {
 // 꺼진 채로 저장돼버린다. 팝업이 열려 있는 동안은 이 플래그로 그 덮어쓰기를
 // 막는다.
 let autoReplyPopupOpen = false;
+// 해제 일시는 이제 입력 칸이 따로 없고 토글을 켤 때 뜨는 팝업으로만
+// 정하므로, 화면에는 상태 문구로만 보여주고 값 자체는 여기 변수로만
+// 들고 있는다.
+let currentAutoReplyUntil = '';
 
 function renderAutoReplyTemplateOptions() {
     const sel = document.getElementById('autoReplyTemplateSelect');
@@ -260,11 +264,11 @@ async function loadAutoReplySettings() {
         // 덮어써서 타이핑을 방해하면 안 된다(loadMessages()의 같은 이유).
         const quietMinutesEl = document.getElementById('autoReplyQuietMinutes');
         if (document.activeElement !== quietMinutesEl) quietMinutesEl.value = d.quiet_minutes;
-        // until은 서버가 "YYYY-MM-DD HH:MM:SS"로 주는데 <input type=datetime-local>은
-        // "YYYY-MM-DDTHH:MM" 형식만 받으므로 변환해서 넣는다.
-        const untilEl = document.getElementById('autoReplyUntil');
-        if (document.activeElement !== untilEl) {
-            untilEl.value = d.until ? d.until.replace(' ', 'T').slice(0, 16) : '';
+        // until은 서버가 "YYYY-MM-DD HH:MM:SS"로 주는데, 팝업(datetime-local
+        // input)에 프리필할 때는 "YYYY-MM-DDTHH:MM" 형식이 필요해서 변환해둔다.
+        // 팝업이 떠 있는 동안은 사용자가 고르고 있는 값을 덮어쓰지 않는다.
+        if (!autoReplyPopupOpen) {
+            currentAutoReplyUntil = d.until ? d.until.replace(' ', 'T').slice(0, 16) : '';
         }
         // 토글이 켜져 있으면 업무시간과 무관하게 바로 발송되므로(공휴일처럼
         // 요일상 평일이지만 자리를 비운 날 대응), 업무시간 여부는 참고
@@ -304,19 +308,18 @@ async function onAutoReplyToggleChange() {
         checkbox.checked = false;
         return;
     }
-    const untilEl = document.getElementById('autoReplyUntil');
     autoReplyPopupOpen = true;
     const picked = await promptDateTime(
         '자동발송 해제 일시',
         '지정한 시각이 지나면 자동발송이 자동으로 꺼집니다. 비워두고 확인하면 직접 끌 때까지 계속 유지됩니다.',
-        untilEl.value
+        currentAutoReplyUntil
     );
     autoReplyPopupOpen = false;
     if (picked === null) {
         checkbox.checked = false;
         return;
     }
-    untilEl.value = picked;
+    currentAutoReplyUntil = picked;
     saveAutoReplySettings();
 }
 
@@ -324,7 +327,7 @@ async function saveAutoReplySettings() {
     const enabled = document.getElementById('autoReplyEnabled').checked;
     const templateId = document.getElementById('autoReplyTemplateSelect').value;
     const quietMinutes = document.getElementById('autoReplyQuietMinutes').value;
-    const until = document.getElementById('autoReplyUntil').value;  // "" 또는 "YYYY-MM-DDTHH:MM"
+    const until = currentAutoReplyUntil;  // "" 또는 "YYYY-MM-DDTHH:MM"
     if (enabled && !templateId) {
         showToast('자동발송할 상용문구를 먼저 선택하세요', 'bad');
         document.getElementById('autoReplyEnabled').checked = false;
