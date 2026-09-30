@@ -31,6 +31,39 @@ import requests
 
 import phone_link
 
+# 감시 루프가 통째로 죽었을 때 다시 시작하기 전에 쉬는 시간. 휴대폰 연결
+# 앱이 닫혀 있는 등 원인이 바로 해소되지 않는 상황에서 재시작을 무한정
+# 빠르게 반복하며 로그만 쌓는 걸 막는다.
+RESTART_DELAY_SECONDS = 10
+
+
+def make_heartbeat(server: str):
+    """매 폴링 주기마다 "나 아직 살아있다"를 서버에 알리는 콜백을 만든다.
+
+    이게 없으면 이 데몬이 죽어도(휴대폰 연결 앱이 닫히거나, 블루투스가
+    끊기거나, COM 오류로 프로세스가 끝나거나) 대시보드는 그냥 "새 민원이
+    없는" 평소 화면과 똑같이 보여서, 실제로는 수신 문자가 하나도 저장되지
+    않는 상태를 아무도 눈치채지 못한다. 서버가 마지막 heartbeat 시각을
+    기억했다가 대시보드에 표시해주면(app.py의 /api/status 참고) 감시가
+    멈춘 걸 바로 알 수 있다.
+
+    polled_ok=False는 화면을 읽다 오류가 나서 그 주기를 건너뛴 경우다 —
+    프로세스는 살아있지만 실제로 감시는 못 하고 있는 상태라, 그대로
+    서버에 알려서 대시보드가 "정상"과 구분해 보여줄 수 있게 한다."""
+    def heartbeat(polled_ok: bool):
+        try:
+            requests.post(
+                f"{server}/api/heartbeat",
+                json={"polled_ok": bool(polled_ok)},
+                timeout=5,
+            )
+        except Exception as e:
+            # 서버가 잠깐 재시작 중일 수 있다 — 다음 주기에 또 보내므로
+            # 여기서는 조용히 넘어간다(매 주기 로그가 쌓이면 시끄럽다).
+            print(f"[heartbeat] 전송 실패(다음 주기에 재시도): {e!r}")
+
+    return heartbeat
+
 
 def make_reporter(server: str, merge_window: float = 0.0):
     """새 문자 한 줄을 받으면 기본적으로(merge_window=0) 감지 즉시 서버에
@@ -51,6 +84,26 @@ def make_reporter(server: str, merge_window: float = 0.0):
     lock = threading.Lock()
 
     def send(phone_number, contact_name, body, msg_time):
+        """서버에 저장 요청을 보낸다. 반환값은 phone_link의
+        watch_notifications()/watch_new_messages()가 "이 줄을 실제로
+        서버까지 전달했는지" 판단하는 데 쓰인다 — False를 돌려주면 그
+        줄은 "본 것"으로 기록되지 않고 다음 폴링에서 다시 시도된다.
+
+        예전에는 성공 여부와 무관하게 항상 (반환값 없이) 넘어갔는데, 그러면
+        서버가 잠깐 재시작 중이거나(예: git pull로 인한 use_reloader
+        재시작) 네트워크가 순간적으로 끊겨 이 요청이 실패해도 phone_link
+        쪽에서는 이미 "본 줄"로 기억해버려서, 그 문자는 다시 시도되지 않고
+        조용히 영영 사라지는 문제가 있었다(실제로 있었던 문제 — 콘솔에
+        경고 한 줄만 남고 아무도 못 봄).
+
+        True/"duplicate"/False 세 가지를 구분해서 돌려준다 — 성공(재시도
+        불필요)인지 아닌지는 True/"duplicate" 둘 다 같지만, "진짜 새로
+        DB에 저장됐는지"는 다르다. watch_notifications()의
+        clear_after_poll이 정확히 이 둘을 구분해야 한다 — 처음엔 이
+        구분 없이 inserted=False(중복/자기 답신으로 서버가 건너뛴 것)도
+        그냥 True로 돌려줬는데, 그러면 실제로 새로 저장된 게 하나도
+        없어도 "성공적으로 처리했다"는 이유만으로 알림 지우기를 계속
+        시도하는 문제로 이어졌다(실제로 겪음)."""
         try:
             r = requests.post(
                 f"{server}/api/messages",
@@ -62,11 +115,20 @@ def make_reporter(server: str, merge_window: float = 0.0):
                 },
                 timeout=10,
             )
-            if r.ok and r.json().get("inserted"):
+            if not r.ok:
+                print(f"[경고] 서버가 오류로 응답({r.status_code})해 다음 폴링에서 재시도합니다 ({phone_number})")
+                return False
+            if r.json().get("inserted"):
                 preview = body[:30].replace("\n", " / ")
                 print(f"[저장] {phone_number}: {preview}")
+                return True
+            # inserted=False는 서버가 중복/자기 답신 등으로 판단해 일부러
+            # 건너뛴 것 — 요청 자체는 정상 처리됐으니 재시도는 필요 없지만
+            # (False가 아님), "새로 저장된 것"도 아니므로 True와는 구분한다.
+            return "duplicate"
         except Exception as e:
-            print(f"[경고] 서버로 전송 실패 ({phone_number}): {e!r}")
+            print(f"[경고] 서버로 전송 실패해 다음 폴링에서 재시도합니다 ({phone_number}): {e!r}")
+            return False
 
     def flush(phone_number):
         with lock:
@@ -80,8 +142,7 @@ def make_reporter(server: str, merge_window: float = 0.0):
             # 보낸다. 0초 타이머로 처리하면 report()가 연달아 두 번 불릴 때
             # 두 번째 호출이 첫 번째 타이머를 취소해버려(아직 안 실행됐으므로)
             # 오히려 합쳐지는 경쟁 상태가 생겨서, 이 경로는 별도로 뺐다.
-            send(phone_number, contact_name, body, msg_time)
-            return
+            return send(phone_number, contact_name, body, msg_time)
         with lock:
             entry = pending.get(phone_number)
             if entry is None:
@@ -206,22 +267,48 @@ if __name__ == "__main__":
              "(처음부터 최소화된 채로 시작하면 목록이 계속 안 읽히는 걸 확인해서, "
              "시작 시점엔 창을 보이게 뒀다가 한 번 읽고 난 뒤에 숨김)"
     )
+    parser.add_argument(
+        "--clear-notifications", action="store_true",
+        help="--source notifications일 때, 이번 폴링에서 새 줄을 전부 서버에 "
+             "저장하고 난 뒤 '모든 알림 지우기'를 눌러 알림 패널을 비웁니다 "
+             "(우리가 보낸 답장이 카드에 오래 남아있다가 나중에 상대방 새 줄로 "
+             "잘못 되살아나는 '나' 오귀속 위험을 줄임 — phone_link.py의 "
+             "watch_notifications() clear_after_poll 설명 참고). 서버 저장이 "
+             "실패한 줄이 있으면 그 폴링은 지우지 않고 다음 폴링에서 다시 "
+             "시도합니다."
+    )
     args = parser.parse_args()
 
     reporter = make_reporter(args.server, merge_window=args.merge_window)
-    initial_seen = _load_recent_seen(args.server)
-    try:
-        if args.source == "notifications":
-            phone_link.watch_notifications(
-                reporter, poll_interval=args.interval, hide_after_start=args.hide,
-                seen_lines_by_sender=initial_seen,
-            )
-        else:
-            phone_link.watch_new_messages(
-                reporter, poll_interval=args.interval, hide_after_start=args.hide,
-                seen_bodies_by_phone=initial_seen,
-            )
-    except KeyboardInterrupt:
-        print("\n[종료] 합치는 중이던 메시지를 마저 저장합니다...")
-        reporter.flush_all()
-        raise
+    heartbeat = make_heartbeat(args.server)
+
+    # 감시 루프가 예외로 죽으면 그대로 프로세스가 끝나버려서, 그 뒤로 오는
+    # 문자를 아무도 저장하지 못하는 상태가 된다(휴대폰 연결 앱이 잠깐
+    # 닫히거나 COM 연결이 끊기면 실제로 일어난다). 루프 안에서 잡히는
+    # 오류는 phone_link가 이미 주기별로 처리하고 넘어가므로, 여기까지
+    # 올라온 건 감시를 아예 계속할 수 없게 된 상황이다 — 잠깐 쉬었다가
+    # 처음부터(창 다시 연결부터) 새로 시작한다.
+    while True:
+        try:
+            # 재시작할 때마다 다시 불러온다 — 그 사이 서버에 저장된 것까지
+            # 반영해야 알림 카드에 남아있는 예전 내용을 새 문자로 착각해
+            # 중복 저장하는 걸 막을 수 있다(_load_recent_seen() 참고).
+            initial_seen = _load_recent_seen(args.server)
+            if args.source == "notifications":
+                phone_link.watch_notifications(
+                    reporter, poll_interval=args.interval, hide_after_start=args.hide,
+                    seen_lines_by_sender=initial_seen, on_poll=heartbeat,
+                    clear_after_poll=args.clear_notifications,
+                )
+            else:
+                phone_link.watch_new_messages(
+                    reporter, poll_interval=args.interval, hide_after_start=args.hide,
+                    seen_bodies_by_phone=initial_seen, on_poll=heartbeat,
+                )
+        except KeyboardInterrupt:
+            print("\n[종료] 합치는 중이던 메시지를 마저 저장합니다...")
+            reporter.flush_all()
+            raise
+        except Exception as e:
+            print(f"[감시 중단] 예상 못한 오류로 감시가 멈춰 {RESTART_DELAY_SECONDS}초 뒤 다시 시작합니다: {e!r}")
+            time.sleep(RESTART_DELAY_SECONDS)
