@@ -223,17 +223,28 @@ async function loadAutoReplySettings() {
         // 덮어써서 타이핑을 방해하면 안 된다(loadMessages()의 같은 이유).
         const quietMinutesEl = document.getElementById('autoReplyQuietMinutes');
         if (document.activeElement !== quietMinutesEl) quietMinutesEl.value = d.quiet_minutes;
+        // until은 서버가 "YYYY-MM-DD HH:MM:SS"로 주는데 <input type=datetime-local>은
+        // "YYYY-MM-DDTHH:MM" 형식만 받으므로 변환해서 넣는다.
+        const untilEl = document.getElementById('autoReplyUntil');
+        if (document.activeElement !== untilEl) {
+            untilEl.value = d.until ? d.until.replace(' ', 'T').slice(0, 16) : '';
+        }
         // 토글이 켜져 있으면 업무시간과 무관하게 바로 발송되므로(공휴일처럼
         // 요일상 평일이지만 자리를 비운 날 대응), 업무시간 여부는 참고
         // 정보로만 보여주고 "대기 상태"처럼 발송이 막힌다고 오해하게 하지
-        // 않는다.
+        // 않는다. 서버가 해제 일시를 지나면 auto_reply_enabled 자체를
+        // 꺼버리므로(app.py의 _maybe_auto_disable_reply), 여기선 그 결과로
+        // 넘어온 enabled/until 값만 그대로 보여주면 된다.
         const statusEl = document.getElementById('autoReplyStatus');
         if (!d.enabled) {
             statusEl.textContent = '자동발송이 꺼져 있습니다.';
-        } else if (d.business_hours_now) {
-            statusEl.textContent = '지금은 업무시간이지만 자동발송이 켜져 있어 바로 발송됩니다. 출근하면 꺼주세요.';
         } else {
-            statusEl.textContent = '지금은 업무외 시간입니다. 자동발송이 켜져 있습니다.';
+            const untilNote = d.until ? ` (${d.until.slice(0, 16)}에 자동 해제)` : '';
+            if (d.business_hours_now) {
+                statusEl.textContent = `지금은 업무시간이지만 자동발송이 켜져 있어 바로 발송됩니다. 출근하면 꺼주세요.${untilNote}`;
+            } else {
+                statusEl.textContent = `지금은 업무외 시간입니다. 자동발송이 켜져 있습니다.${untilNote}`;
+            }
         }
     } catch (e) {}
 }
@@ -242,6 +253,7 @@ async function saveAutoReplySettings() {
     const enabled = document.getElementById('autoReplyEnabled').checked;
     const templateId = document.getElementById('autoReplyTemplateSelect').value;
     const quietMinutes = document.getElementById('autoReplyQuietMinutes').value;
+    const until = document.getElementById('autoReplyUntil').value;  // "" 또는 "YYYY-MM-DDTHH:MM"
     if (enabled && !templateId) {
         showToast('자동발송할 상용문구를 먼저 선택하세요', 'bad');
         document.getElementById('autoReplyEnabled').checked = false;
@@ -253,6 +265,7 @@ async function saveAutoReplySettings() {
             body: JSON.stringify({
                 enabled, template_id: templateId ? Number(templateId) : null,
                 quiet_minutes: quietMinutes === '' ? null : Number(quietMinutes),
+                until,
             })
         });
         // 저장 직후 상태 문구("지금은 업무외 시간입니다...")가 바로 갱신되게

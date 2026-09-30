@@ -523,6 +523,8 @@
       </select>
       <label for="autoReplyQuietMinutes">같은 번호로 자동발송한 뒤, 몇 분 안에 또 오면 새 민원으로 안 볼지(분)</label>
       <input type="number" id="autoReplyQuietMinutes" min="0" step="1" onchange="saveAutoReplySettings()">
+      <label for="autoReplyUntil">지정 일시에 자동 해제 (비워두면 직접 끌 때까지 계속 유지)</label>
+      <input type="datetime-local" id="autoReplyUntil" onchange="saveAutoReplySettings()">
     </div>
 
     <div class="card">

@@ -704,6 +704,27 @@ def api_delete_template(tid):
 WATCHER_STALE_SECONDS = 60
 
 
+def _maybe_auto_disable_reply():
+    """auto_reply_until에 해제 예정 시각이 저장돼 있고 이미 지났으면
+    자동발송을 꺼준다. 새 민원이 안 들어와도 지정 시각에 맞춰 꺼져야
+    하므로, 특정 이벤트(수신 저장 등)가 아니라 watch_daemon.py가 몇 초
+    간격으로 계속 호출하는 heartbeat와 대시보드가 주기적으로 부르는
+    상태/설정 조회, 이 세 군데에서 매번 불러서 체크한다."""
+    if get_setting("auto_reply_enabled", "0") != "1":
+        return
+    until = get_setting("auto_reply_until", "")
+    if not until:
+        return
+    try:
+        until_dt = datetime.strptime(until, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return
+    if datetime.now() >= until_dt:
+        set_setting("auto_reply_enabled", "0")
+        set_setting("auto_reply_until", "")
+        print(f"[업무외 자동발송] 설정된 해제 일시({until})가 지나 자동으로 꺼졌습니다")
+
+
 @app.route("/api/heartbeat", methods=["POST"])
 def api_heartbeat():
     """watch_daemon.py가 매 폴링 주기마다 호출한다 — 자세한 이유는
@@ -712,6 +733,7 @@ def api_heartbeat():
     data = request.get_json(force=True, silent=True) or {}
     set_setting("watcher_last_seen", now_local())
     set_setting("watcher_last_ok", "1" if data.get("polled_ok") else "0")
+    _maybe_auto_disable_reply()
     return jsonify({"ok": True})
 
 
@@ -720,6 +742,7 @@ def api_status():
     """대시보드 상단에 띄울 운영 상태 — 감시 데몬이 살아있는지, 지금이
     업무시간인지, 자동발송이 켜져 있는지. 대시보드는 이 셋을 조합해서
     "감시 중단됨" 배너나 "업무시간인데 자동발송 켜짐" 경고를 띄운다."""
+    _maybe_auto_disable_reply()
     last_seen = get_setting("watcher_last_seen", "")
     seconds_ago = None
     if last_seen:
@@ -746,11 +769,13 @@ def api_status():
 # ── 업무외 자동발송 설정 ────────────────────────────────────
 @app.route("/api/settings/auto_reply", methods=["GET"])
 def api_get_auto_reply_settings():
+    _maybe_auto_disable_reply()
     template_id = get_setting("auto_reply_template_id", "")
     return jsonify({
         "enabled": get_setting("auto_reply_enabled", "0") == "1",
         "template_id": int(template_id) if template_id else None,
         "quiet_minutes": int(get_setting("auto_reply_quiet_minutes", AUTO_REPLY_QUIET_MINUTES_DEFAULT)),
+        "until": get_setting("auto_reply_until", ""),
         "business_hours_now": _is_business_hours(),
     })
 
@@ -758,7 +783,8 @@ def api_get_auto_reply_settings():
 @app.route("/api/settings/auto_reply", methods=["PUT"])
 def api_update_auto_reply_settings():
     data = request.get_json(force=True, silent=True) or {}
-    set_setting("auto_reply_enabled", "1" if data.get("enabled") else "0")
+    enabled = bool(data.get("enabled"))
+    set_setting("auto_reply_enabled", "1" if enabled else "0")
     template_id = data.get("template_id")
     set_setting("auto_reply_template_id", str(template_id) if template_id else "")
     quiet_minutes = data.get("quiet_minutes")
@@ -769,6 +795,22 @@ def api_update_auto_reply_settings():
     except (TypeError, ValueError):
         quiet_minutes = int(AUTO_REPLY_QUIET_MINUTES_DEFAULT)
     set_setting("auto_reply_quiet_minutes", str(quiet_minutes))
+
+    # 해제 일시: 켜져 있고 값이 넘어왔을 때만 저장한다. 껐거나(수동/자동)
+    # 값을 비워서 보내면(계속 켜두고 싶은 경우) 예약을 지운다 — 그래야
+    # 다음에 다시 켤 때 지난번 지나버린 해제 시각이 남아있다가 켜자마자
+    # 바로 꺼지는 사고를 막는다.
+    until_raw = (data.get("until") or "").strip().replace("T", " ")
+    if enabled and until_raw:
+        if len(until_raw) == 16:  # datetime-local이 초 없이 "YYYY-MM-DD HH:MM"만 줌
+            until_raw += ":00"
+        try:
+            datetime.strptime(until_raw, "%Y-%m-%d %H:%M:%S")
+            set_setting("auto_reply_until", until_raw)
+        except ValueError:
+            set_setting("auto_reply_until", "")
+    else:
+        set_setting("auto_reply_until", "")
     return jsonify({"ok": True})
 
 
