@@ -318,12 +318,21 @@ async function onAutoReplyToggleChange() {
         const pad = n => String(n).padStart(2, '0');
         defaultUntil = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T09:00`;
     }
+    // 이미 지난 시각을 고르면, 저장하자마자 서버가 "해제 시각이 지났다"고
+    // 판단해서 켠 직후 바로 꺼버린다 — 화면엔 아무 설명 없이 토글이 도로
+    // 꺼진 것처럼 보이는 혼란스러운 상황이라, 지난 시각이면 토스트로 알리고
+    // 같은 값을 보여준 채로 다시 고르게 한다.
     autoReplyPopupOpen = true;
-    const picked = await promptDateTime(
-        '자동발송 해제 일시',
-        '지정한 시각이 지나면 자동발송이 자동으로 꺼집니다. 비워두고 확인하면 직접 끌 때까지 계속 유지됩니다.',
-        defaultUntil
-    );
+    let picked = defaultUntil;
+    while (true) {
+        picked = await promptDateTime(
+            '자동발송 해제 일시',
+            '지정한 시각이 지나면 자동발송이 자동으로 꺼집니다. 비워두고 확인하면 직접 끌 때까지 계속 유지됩니다.',
+            picked
+        );
+        if (picked === null || picked === '' || new Date(picked) > new Date()) break;
+        showToast('이미 지난 시각입니다. 앞으로의 시각을 골라주세요', 'bad');
+    }
     autoReplyPopupOpen = false;
     if (picked === null) {
         checkbox.checked = false;
