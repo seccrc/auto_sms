@@ -308,11 +308,21 @@ async function onAutoReplyToggleChange() {
         checkbox.checked = false;
         return;
     }
+    // 업무 시작 시각(09시)에 맞춰 끄는 게 제일 흔한 경우라, 날짜/시간을
+    // 아예 안 정해둔 상태로 팝업을 열면 "내일 09:00"을 기본값으로 채워준다
+    // — 그대로 확인만 눌러도 되고, 필요하면 날짜/시간 둘 다 바꿀 수 있다.
+    let defaultUntil = currentAutoReplyUntil;
+    if (!defaultUntil) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const pad = n => String(n).padStart(2, '0');
+        defaultUntil = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T09:00`;
+    }
     autoReplyPopupOpen = true;
     const picked = await promptDateTime(
         '자동발송 해제 일시',
         '지정한 시각이 지나면 자동발송이 자동으로 꺼집니다. 비워두고 확인하면 직접 끌 때까지 계속 유지됩니다.',
-        currentAutoReplyUntil
+        defaultUntil
     );
     autoReplyPopupOpen = false;
     if (picked === null) {
