@@ -88,14 +88,20 @@ def _current_user():
     return dict(row) if row else None
 
 
-# 이 앱은 로그인/세션이 생기면서 상태를 바꾸는(POST) 요청마다 브라우저가
-# 자동으로 붙여주는 Origin/Referer 헤더가 이 서버 자신인지 확인해서, 다른
-# 사이트가 로그인된 브라우저를 통해 몰래 보낸 요청(CSRF)을 걸러낸다 —
+# 이 앱은 로그인/세션이 생기면서 상태를 바꾸는(POST/PUT/PATCH/DELETE) 요청마다
+# 브라우저가 자동으로 붙여주는 Origin/Referer 헤더가 이 서버 자신인지 확인해서,
+# 다른 사이트가 로그인된 브라우저를 통해 몰래 보낸 요청(CSRF)을 걸러낸다 —
 # 정상적인 요청은 전부 이 화면 안의 폼/버튼에서 나오므로 Origin이 항상 이
-# 서버 자신이다. violation 프로젝트의 같은 검사와 동일한 방식.
+# 서버 자신이다. violation 프로젝트의 같은 검사와 동일한 방식. PUT/PATCH/
+# DELETE는 브라우저가 cross-origin으로 보낼 때 CORS preflight에 막히긴
+# 하지만(이 서버는 CORS 허용 헤더를 안 보냄), 그건 이 서버가 의도한 방어가
+# 아니라 "어쩌다 막힌" 것이라 명시적으로 같이 검사한다.
+_STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
 @app.before_request
 def _verify_same_origin():
-    if request.method != "POST" or request.endpoint in _LOCAL_MACHINE_ENDPOINTS:
+    if request.method not in _STATE_CHANGING_METHODS or request.endpoint in _LOCAL_MACHINE_ENDPOINTS:
         return
     expected = request.host_url.rstrip("/")
     origin = request.headers.get("Origin")
